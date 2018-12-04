@@ -1133,8 +1133,9 @@ static int open_input(HLSContext *c, struct playlist *pls, struct segment *seg)
         av_dict_set_int(&opts, "end_offset", seg->url_offset + seg->size, 0);
     }
 
-    av_log(pls->parent, AV_LOG_VERBOSE, "HLS request for url '%s', offset %"PRId64", playlist %d\n",
-           seg->url, seg->url_offset, pls->index);
+	av_log(NULL, AV_LOG_ERROR, "[HLSLOWLAT]");
+    av_log(pls->parent, AV_LOG_VERBOSE, "HLS request for url '%s', playlist %d\n",
+           seg->url, pls->index);
 
     if (seg->key_type == KEY_NONE) {
         ret = open_url(pls->parent, &pls->input, seg->url, c->avio_opts, opts, &is_http);
@@ -1351,6 +1352,7 @@ reload:
         if (ret)
             return ret;
 
+		//av_log(v->parent, AV_LOG_WARNING, "- open_input of playlist %d, seg %i\n", v->index, seg);
         ret = open_input(c, v, seg);
         if (ret < 0) {
             if (ff_check_interrupt(c->interrupt_callback))
@@ -1475,16 +1477,28 @@ static int select_cur_seq_no(HLSContext *c, struct playlist *pls)
 {
     int seq_no;
 
+	// HLSLOWLAT, ignoring seek logic
+	av_log(NULL, AV_LOG_WARNING, "- select_cur_seq_no (before): %i+%i, %i\n", pls->start_seq_no, pls->n_segments, pls->finished);
+	if (!pls->finished){
+		seq_no = pls->start_seq_no;
+		av_log(NULL, AV_LOG_WARNING, "- HLSLOWLAT Initial segment (always first): %i\n", seq_no);
+		return seq_no;
+	}
+
+	//av_log(pls->parent, AV_LOG_VERBOSE, "-- 1. select_cur_seq_no: %i %i\n",pls->finished, c->first_packet);
     if (!pls->finished && !c->first_packet &&
-        av_gettime_relative() - pls->last_load_time >= default_reload_interval(pls))
+        av_gettime_relative() - pls->last_load_time >= default_reload_interval(pls)){
         /* reload the playlist since it was suspended */
         parse_playlist(c, pls->url, pls, NULL);
+		//av_log(pls->parent, AV_LOG_VERBOSE, "-- 2. select_cur_seq_no\n");
+	}
 
     /* If playback is already in progress (we are just selecting a new
      * playlist) and this is a complete file, find the matching segment
      * by counting durations. */
     if (pls->finished && c->cur_timestamp != AV_NOPTS_VALUE) {
         find_timestamp_in_playlist(c, pls, c->cur_timestamp, &seq_no);
+		//av_log(pls->parent, AV_LOG_VERBOSE, "-- 3. select_cur_seq_no %i\n",seq_no);
         return seq_no;
     }
 
@@ -1496,16 +1510,20 @@ static int select_cur_seq_no(HLSContext *c, struct playlist *pls)
              * content at the same sequence number on different playlists,
              * in practice this seems to work and doing it otherwise would
              * require us to download a segment to inspect its timestamps. */
+			 //av_log(pls->parent, AV_LOG_VERBOSE, "-- 4. select_cur_seq_no %i\n",c->cur_seq_no);
             return c->cur_seq_no;
 
         /* If this is a live stream, start live_start_index segments from the
          * start or end */
-        if (c->live_start_index < 0)
+        if (c->live_start_index < 0){
+			 //av_log(pls->parent, AV_LOG_VERBOSE, "-- 5. select_cur_seq_no\n");
             return pls->start_seq_no + FFMAX(pls->n_segments + c->live_start_index, 0);
-        else
+        }else{
+			//av_log(pls->parent, AV_LOG_VERBOSE, "-- 6. select_cur_seq_no\n");
             return pls->start_seq_no + FFMIN(c->live_start_index, pls->n_segments - 1);
+		}
     }
-
+	//av_log(pls->parent, AV_LOG_VERBOSE, "-- 7. select_cur_seq_no\n");
     /* Otherwise just start on the first segment. */
     return pls->start_seq_no;
 }
@@ -1867,6 +1885,7 @@ static int recheck_discard_flags(AVFormatContext *s, int first)
     for (i = 0; i < s->nb_streams; i++) {
         AVStream *st = s->streams[i];
         struct playlist *pls = c->playlists[s->streams[i]->id];
+		//av_log(s, AV_LOG_INFO, "recheck_discard_flags discard %d\n", st->discard);
         if (st->discard < AVDISCARD_ALL)
             pls->cur_needed = 1;
     }
@@ -1939,6 +1958,7 @@ static int compare_ts_with_wrapdetect(int64_t ts_a, struct playlist *pls_a,
 
 static int hls_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
+	//av_log(s, AV_LOG_INFO, "- hls_read_packet\n");
     HLSContext *c = s->priv_data;
     int ret, i, minplaylist = -1;
 
@@ -2101,6 +2121,7 @@ static int hls_read_packet(AVFormatContext *s, AVPacket *pkt)
 static int hls_read_seek(AVFormatContext *s, int stream_index,
                                int64_t timestamp, int flags)
 {
+	//av_log(s, AV_LOG_INFO, "- hls_read_seek %"PRId64" %i\n",timestamp,flags);
     HLSContext *c = s->priv_data;
     struct playlist *seek_pls = NULL;
     int i, seq_no;
@@ -2108,43 +2129,62 @@ static int hls_read_seek(AVFormatContext *s, int stream_index,
     int stream_subdemuxer_index;
     int64_t first_timestamp, seek_timestamp, duration;
 
-    if ((flags & AVSEEK_FLAG_BYTE) ||
-        !(c->variants[0]->playlists[0]->finished || c->variants[0]->playlists[0]->type == PLS_TYPE_EVENT))
-        return AVERROR(ENOSYS);
+	if((flags & 0x1000) == 0x1000){// HLSLOWLAT hack
+		// HLSLOWLAT seek2end
+		seq_no = 0;
+		for (i = 0; i < c->n_playlists; i++) {
+	        struct playlist *pls = c->playlists[i];
+	        if (pls->n_segments == 0)
+	            continue;
+			seek_pls = pls;
+	        seq_no = select_cur_seq_no(c, pls);// HLSLOWLAT: Jump to latest for unfinished
+			seek_timestamp = AV_NOPTS_VALUE;
+			break;
+	    }
+		av_log(s, AV_LOG_INFO, "- HLSLOWLAT hls_read_seek possible segment skip: %i->%i \n",seek_pls->cur_seq_no,seq_no);
+		if(seq_no <= seek_pls->cur_seq_no){
+			// no change
+			return AVERROR(ENOSYS);
+		}
+		seek_pls->cur_seq_no = seq_no;
+	}else{
+	    if ((flags & AVSEEK_FLAG_BYTE) ||
+	        !(c->variants[0]->playlists[0]->finished || c->variants[0]->playlists[0]->type == PLS_TYPE_EVENT))
+	        return AVERROR(ENOSYS);
 
-    first_timestamp = c->first_timestamp == AV_NOPTS_VALUE ?
-                      0 : c->first_timestamp;
+	    first_timestamp = c->first_timestamp == AV_NOPTS_VALUE ?
+	                      0 : c->first_timestamp;
 
-    seek_timestamp = av_rescale_rnd(timestamp, AV_TIME_BASE,
-                                    s->streams[stream_index]->time_base.den,
-                                    flags & AVSEEK_FLAG_BACKWARD ?
-                                    AV_ROUND_DOWN : AV_ROUND_UP);
+	    seek_timestamp = av_rescale_rnd(timestamp, AV_TIME_BASE,
+	                                    s->streams[stream_index]->time_base.den,
+	                                    flags & AVSEEK_FLAG_BACKWARD ?
+	                                    AV_ROUND_DOWN : AV_ROUND_UP);
 
-    duration = s->duration == AV_NOPTS_VALUE ?
-               0 : s->duration;
+	    duration = s->duration == AV_NOPTS_VALUE ?
+	               0 : s->duration;
 
-    if (0 < duration && duration < seek_timestamp - first_timestamp)
-        return AVERROR(EIO);
+	    if (0 < duration && duration < seek_timestamp - first_timestamp)
+	        return AVERROR(EIO);
 
-    /* find the playlist with the specified stream */
-    for (i = 0; i < c->n_playlists; i++) {
-        struct playlist *pls = c->playlists[i];
-        for (j = 0; j < pls->n_main_streams; j++) {
-            if (pls->main_streams[j] == s->streams[stream_index]) {
-                seek_pls = pls;
-                stream_subdemuxer_index = j;
-                break;
-            }
-        }
-    }
-    /* check if the timestamp is valid for the playlist with the
-     * specified stream index */
-    if (!seek_pls || !find_timestamp_in_playlist(c, seek_pls, seek_timestamp, &seq_no))
-        return AVERROR(EIO);
-
-    /* set segment now so we do not need to search again below */
-    seek_pls->cur_seq_no = seq_no;
-    seek_pls->seek_stream_index = stream_subdemuxer_index;
+	    /* find the playlist with the specified stream */
+	    for (i = 0; i < c->n_playlists; i++) {
+	        struct playlist *pls = c->playlists[i];
+	        for (j = 0; j < pls->n_main_streams; j++) {
+	            if (pls->main_streams[j] == s->streams[stream_index]) {
+	                seek_pls = pls;
+	                stream_subdemuxer_index = j;
+	                break;
+	            }
+	        }
+	    }
+	    /* check if the timestamp is valid for the playlist with the
+	     * specified stream index */
+	    if (!seek_pls || !find_timestamp_in_playlist(c, seek_pls, seek_timestamp, &seq_no))
+	        return AVERROR(EIO);
+		/* set segment now so we do not need to search again below */
+	    seek_pls->cur_seq_no = seq_no;
+	    seek_pls->seek_stream_index = stream_subdemuxer_index;
+	}
 
     for (i = 0; i < c->n_playlists; i++) {
         /* Reset reading */

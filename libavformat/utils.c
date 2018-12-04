@@ -3660,23 +3660,25 @@ FF_ENABLE_DEPRECATION_WARNINGS
             /* If the timebase is coarse (like the usual millisecond precision
              * of mkv), we need to analyze more frames to reliably arrive at
              * the correct fps. */
-            if (av_q2d(st->time_base) > 0.0005)
+            /* // HLSLOWLAT
+			if (av_q2d(st->time_base) > 0.0005)
                 fps_analyze_framecount *= 2;
             if (!tb_unreliable(st->internal->avctx))
                 fps_analyze_framecount = 0;
             if (ic->fps_probe_size >= 0)
                 fps_analyze_framecount = ic->fps_probe_size;
             if (st->disposition & AV_DISPOSITION_ATTACHED_PIC)
-                fps_analyze_framecount = 0;
+                fps_analyze_framecount = 0;*/
             /* variable fps and no guess at the real fps */
-            if (!(st->r_frame_rate.num && st->avg_frame_rate.num) &&
+            /* // HLSLOWLAT
+			if (!(st->r_frame_rate.num && st->avg_frame_rate.num) &&
                 st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
                 int count = (ic->iformat->flags & AVFMT_NOTIMESTAMPS) ?
                     st->info->codec_info_duration_fields/2 :
                     st->info->duration_count;
                 if (count < fps_analyze_framecount)
                     break;
-            }
+            }*/
             if (!st->internal->avctx->extradata &&
                 (!st->internal->extract_extradata.inited ||
                  st->internal->extract_extradata.bsf) &&
@@ -3698,7 +3700,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
             if (!(ic->ctx_flags & AVFMTCTX_NOHEADER)) {
                 /* If we found the info for all the codecs, we can stop. */
                 ret = count;
-                av_log(ic, AV_LOG_DEBUG, "All info found\n");
+                av_log(ic, AV_LOG_DEBUG, "All info found. read_size=%"PRId64" probesize=%"PRId64"\n",read_size,probesize);
                 flush_codecs = 0;
                 break;
             }

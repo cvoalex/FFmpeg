@@ -267,6 +267,8 @@ int av_probe_input_buffer2(AVIOContext *pb, AVInputFormat **fmt,
                           const char *filename, void *logctx,
                           unsigned int offset, unsigned int max_probe_size)
 {
+	if(max_probe_size>2048){max_probe_size = 2048;};//HLSLOWLAT
+
     AVProbeData pd = { filename ? filename : "" };
     uint8_t *buf = NULL;
     int ret = 0, probe_size, buf_offset = 0;

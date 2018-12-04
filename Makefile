@@ -157,7 +157,7 @@ config:
 
 check: all alltools examples testprogs fate
 
-include $(SRC_PATH)/tests/Makefile
+#include $(SRC_PATH)/tests/Makefile
 
 $(sort $(OBJDIRS)):
 	$(Q)mkdir -p $@

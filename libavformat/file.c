@@ -360,7 +360,8 @@ const URLProtocol ff_file_protocol = {
     .url_open_dir        = file_open_dir,
     .url_read_dir        = file_read_dir,
     .url_close_dir       = file_close_dir,
-    .default_whitelist   = "file,crypto"
+    //.default_whitelist   = "file,crypto"
+	.default_whitelist   = "file,crypto,http,https,tcp" // HLSLOWLAT
 };
 
 #endif /* CONFIG_FILE_PROTOCOL */
