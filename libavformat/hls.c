@@ -617,13 +617,14 @@ static int open_url(AVFormatContext *s, AVIOContext **pb, const char *url,
             proto_name = avio_find_protocol_name(url + 7);
     }
 
-    if (!proto_name)
+    if (!proto_name){
         proto_name = avio_find_protocol_name(url);
-
-    if (!proto_name)
+	}
+    if (!proto_name){
         return AVERROR_INVALIDDATA;
-
+	}
     // only http(s) & file are allowed
+	// & unix // HLSLOWLAT
     if (av_strstart(proto_name, "file", NULL)) {
         if (strcmp(c->allowed_extensions, "ALL") && !av_match_ext(url, c->allowed_extensions)) {
             av_log(s, AV_LOG_ERROR,
@@ -633,6 +634,8 @@ static int open_url(AVFormatContext *s, AVIOContext **pb, const char *url,
             return AVERROR_INVALIDDATA;
         }
     } else if (av_strstart(proto_name, "http", NULL)) {
+        ;
+	} else if (av_strstart(proto_name, "unix", NULL)) {// HLSLOWLAT
         ;
     } else
         return AVERROR_INVALIDDATA;
@@ -1315,6 +1318,8 @@ reload:
         reload_count++;
         if (reload_count > c->max_reload)
             return AVERROR_EOF;
+
+		/* // HLSLOWLAT not need to reload
         if (!v->finished &&
             av_gettime_relative() - v->last_load_time >= reload_interval) {
             if ((ret = parse_playlist(c, v->url, v, NULL)) < 0) {
@@ -1322,11 +1327,12 @@ reload:
                        v->index);
                 return ret;
             }
-            /* If we need to reload the playlist again below (if
-             * there's still no more segments), switch to a reload
-             * interval of half the target duration. */
+            // If we need to reload the playlist again below (if
+            // there's still no more segments), switch to a reload
+            // interval of half the target duration
             reload_interval = v->target_duration / 2;
         }
+		*/
         if (v->cur_seq_no < v->start_seq_no) {
             av_log(NULL, AV_LOG_WARNING,
                    "skipping %d segments ahead, expired from playlists\n",
@@ -1766,6 +1772,7 @@ static int hls_read_header(AVFormatContext *s, AVDictionary **options)
             continue;
 
         pls->cur_seq_no = select_cur_seq_no(c, pls);
+
         highest_cur_seq_no = FFMAX(highest_cur_seq_no, pls->cur_seq_no);
     }
 

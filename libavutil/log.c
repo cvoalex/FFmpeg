@@ -39,6 +39,8 @@
 #include "common.h"
 #include "internal.h"
 #include "log.h"
+#include <time.h>
+#include "libavutil/time.h"
 
 #if HAVE_PTHREADS
 #include <pthread.h>
@@ -299,6 +301,8 @@ int av_log_format_line2(void *ptr, int level, const char *fmt, va_list vl,
     return ret;
 }
 
+
+
 void av_log_default_callback(void* ptr, int level, const char* fmt, va_list vl)
 {
     static int print_prefix = 1;
@@ -320,9 +324,9 @@ void av_log_default_callback(void* ptr, int level, const char* fmt, va_list vl)
 #if HAVE_PTHREADS
     pthread_mutex_lock(&mutex);
 #endif
-
     format_line(ptr, level, fmt, vl, part, &print_prefix, type);
-    snprintf(line, sizeof(line), "%s%s%s%s", part[0].str, part[1].str, part[2].str, part[3].str);
+    //snprintf(line, sizeof(line), "[t: %10"PRIu64"] %s%s%s%s", t, part[0].str, part[1].str, part[2].str, part[3].str);
+	snprintf(line, sizeof(line), "- %s%s%s%s", part[0].str, part[1].str, part[2].str, part[3].str);
 
 #if HAVE_ISATTY
     if (!is_atty)

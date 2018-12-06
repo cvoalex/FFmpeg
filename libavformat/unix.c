@@ -25,8 +25,6 @@
  * Unix socket url_protocol
  */
 
-// test
-
 #include "libavutil/avstring.h"
 #include "libavutil/opt.h"
 #include "os_support.h"
@@ -68,6 +66,8 @@ static int unix_open(URLContext *h, const char *filename, int flags)
     int fd, ret;
 
     av_strstart(filename, "unix:", &filename);
+	av_log(s, AV_LOG_INFO, "- UNIX read -> %s \n",filename);// HLSLOWLAT
+
     s->addr.sun_family = AF_UNIX;
     av_strlcpy(s->addr.sun_path, filename, sizeof(s->addr.sun_path));
 

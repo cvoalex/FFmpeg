@@ -361,7 +361,7 @@ const URLProtocol ff_file_protocol = {
     .url_read_dir        = file_read_dir,
     .url_close_dir       = file_close_dir,
     //.default_whitelist   = "file,crypto"
-	.default_whitelist   = "file,crypto,http,https,tcp" // HLSLOWLAT
+	.default_whitelist   = "file,crypto,http,https,tcp,async,unix" // HLSLOWLAT
 };
 
 #endif /* CONFIG_FILE_PROTOCOL */
