@@ -3175,6 +3175,8 @@ udp_protocol_select="network"
 udplite_protocol_select="network"
 unix_protocol_deps="sys_un_h"
 unix_protocol_select="network"
+llhlsunix_protocol_deps="sys_un_h"
+llhlsunix_protocol_select="network"
 
 # filters
 afftfilt_filter_deps="avcodec"

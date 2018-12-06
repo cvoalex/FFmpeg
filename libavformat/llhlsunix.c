@@ -32,18 +32,18 @@
 #include <sys/un.h>
 #include "url.h"
 
-typedef struct UnixContext {
+typedef struct llhlsUnixContext {
     const AVClass *class;
     struct sockaddr_un addr;
     int timeout;
     int listen;
     int type;
     int fd;
-} UnixContext;
+} llhlsUnixContext;
 
-#define OFFSET(x) offsetof(UnixContext, x)
+#define OFFSET(x) offsetof(llhlsUnixContext, x)
 #define ED AV_OPT_FLAG_DECODING_PARAM|AV_OPT_FLAG_ENCODING_PARAM
-static const AVOption unix_options[] = {
+static const AVOption llhlsunix_options[] = {
     { "listen",    "Open socket for listening",             OFFSET(listen),  AV_OPT_TYPE_BOOL,  { .i64 = 0 },                    0,       1, ED },
     { "timeout",   "Timeout in ms",                         OFFSET(timeout), AV_OPT_TYPE_INT,   { .i64 = -1 },                  -1, INT_MAX, ED },
     { "type",      "Socket type",                           OFFSET(type),    AV_OPT_TYPE_INT,   { .i64 = SOCK_STREAM },    INT_MIN, INT_MAX, ED, "type" },
@@ -53,19 +53,19 @@ static const AVOption unix_options[] = {
     { NULL }
 };
 
-static const AVClass unix_class = {
-    .class_name = "unix",
+static const AVClass llhlsunix_class = {
+    .class_name = "llhlsunix",
     .item_name  = av_default_item_name,
     .option     = unix_options,
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-static int unix_open(URLContext *h, const char *filename, int flags)
+static int llhlsunix_open(URLContext *h, const char *filename, int flags)
 {
-    UnixContext *s = h->priv_data;
+    llhlsUnixContext *s = h->priv_data;
     int fd, ret;
 
-    av_strstart(filename, "unix:", &filename);
+    av_strstart(filename, "llhls:", &filename);
 
     s->addr.sun_family = AF_UNIX;
     av_strlcpy(s->addr.sun_path, filename, sizeof(s->addr.sun_path));
@@ -108,9 +108,9 @@ fail:
     return ret;
 }
 
-static int unix_read(URLContext *h, uint8_t *buf, int size)
+static int llhlsunix_read(URLContext *h, uint8_t *buf, int size)
 {
-    UnixContext *s = h->priv_data;
+    llhlsUnixContext *s = h->priv_data;
     int ret;
 
     if (!(h->flags & AVIO_FLAG_NONBLOCK)) {
@@ -122,9 +122,9 @@ static int unix_read(URLContext *h, uint8_t *buf, int size)
     return ret < 0 ? ff_neterrno() : ret;
 }
 
-static int unix_write(URLContext *h, const uint8_t *buf, int size)
+static int llhlsunix_write(URLContext *h, const uint8_t *buf, int size)
 {
-    UnixContext *s = h->priv_data;
+    llhlsUnixContext *s = h->priv_data;
     int ret;
 
     if (!(h->flags & AVIO_FLAG_NONBLOCK)) {
@@ -136,29 +136,29 @@ static int unix_write(URLContext *h, const uint8_t *buf, int size)
     return ret < 0 ? ff_neterrno() : ret;
 }
 
-static int unix_close(URLContext *h)
+static int llhlsunix_close(URLContext *h)
 {
-    UnixContext *s = h->priv_data;
+    llhlsUnixContext *s = h->priv_data;
     if (s->listen)
         unlink(s->addr.sun_path);
     closesocket(s->fd);
     return 0;
 }
 
-static int unix_get_file_handle(URLContext *h)
+static int llhlsunix_get_file_handle(URLContext *h)
 {
-    UnixContext *s = h->priv_data;
+    llhlsUnixContext *s = h->priv_data;
     return s->fd;
 }
 
-const URLProtocol ff_unix_protocol = {
-    .name                = "unix",
-    .url_open            = unix_open,
-    .url_read            = unix_read,
-    .url_write           = unix_write,
-    .url_close           = unix_close,
-    .url_get_file_handle = unix_get_file_handle,
-    .priv_data_size      = sizeof(UnixContext),
-    .priv_data_class     = &unix_class,
+const URLProtocol ff_llhlsunix_protocol = {
+    .name                = "llhls",
+    .url_open            = llhlsunix_open,
+    .url_read            = llhlsunix_read,
+    .url_write           = llhlsunix_write,
+    .url_close           = llhlsunix_close,
+    .url_get_file_handle = llhlsunix_get_file_handle,
+    .priv_data_size      = sizeof(llhlsUnixContext),
+    .priv_data_class     = &llhlsunix_class,
     .flags               = URL_PROTOCOL_FLAG_NETWORK,
 };

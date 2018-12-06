@@ -624,7 +624,7 @@ static int open_url(AVFormatContext *s, AVIOContext **pb, const char *url,
         return AVERROR_INVALIDDATA;
 	}
     // only http(s) & file are allowed
-	// & unix // HLSLOWLAT
+	// & unix | llhlsunix // HLSLOWLAT
     if (av_strstart(proto_name, "file", NULL)) {
         if (strcmp(c->allowed_extensions, "ALL") && !av_match_ext(url, c->allowed_extensions)) {
             av_log(s, AV_LOG_ERROR,
@@ -635,7 +635,7 @@ static int open_url(AVFormatContext *s, AVIOContext **pb, const char *url,
         }
     } else if (av_strstart(proto_name, "http", NULL)) {
         ;
-	} else if (av_strstart(proto_name, "unix", NULL)) {// HLSLOWLAT
+	} else if (av_strstart(proto_name, "unix", NULL) || av_strstart(proto_name, "llhls", NULL)) {// HLSLOWLAT
         ;
     } else
         return AVERROR_INVALIDDATA;
