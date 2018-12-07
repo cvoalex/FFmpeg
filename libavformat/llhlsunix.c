@@ -36,42 +36,45 @@ typedef struct llhlsUnixContext {
     const AVClass *class;
     struct sockaddr_un addr;
     int timeout;
-    int listen;
-    int type;
     int fd;
+	char chunkUri[1024];
 } llhlsUnixContext;
 
 #define OFFSET(x) offsetof(llhlsUnixContext, x)
 #define ED AV_OPT_FLAG_DECODING_PARAM|AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption llhlsunix_options[] = {
-    { "listen",    "Open socket for listening",             OFFSET(listen),  AV_OPT_TYPE_BOOL,  { .i64 = 0 },                    0,       1, ED },
     { "timeout",   "Timeout in ms",                         OFFSET(timeout), AV_OPT_TYPE_INT,   { .i64 = -1 },                  -1, INT_MAX, ED },
-    { "type",      "Socket type",                           OFFSET(type),    AV_OPT_TYPE_INT,   { .i64 = SOCK_STREAM },    INT_MIN, INT_MAX, ED, "type" },
-    { "stream",    "Stream (reliable stream-oriented)",     0,               AV_OPT_TYPE_CONST, { .i64 = SOCK_STREAM },    INT_MIN, INT_MAX, ED, "type" },
-    { "datagram",  "Datagram (unreliable packet-oriented)", 0,               AV_OPT_TYPE_CONST, { .i64 = SOCK_DGRAM },     INT_MIN, INT_MAX, ED, "type" },
-    { "seqpacket", "Seqpacket (reliable packet-oriented",   0,               AV_OPT_TYPE_CONST, { .i64 = SOCK_SEQPACKET }, INT_MIN, INT_MAX, ED, "type" },
     { NULL }
 };
 
 static const AVClass llhlsunix_class = {
     .class_name = "llhlsunix",
     .item_name  = av_default_item_name,
-    .option     = unix_options,
+    .option     = llhlsunix_options,
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
 static int llhlsunix_open(URLContext *h, const char *filename, int flags)
 {
     llhlsUnixContext *s = h->priv_data;
-    int fd, ret;
+    int fd = 0, ret = 0;
 
     av_strstart(filename, "llhls:", &filename);
 
-    s->addr.sun_family = AF_UNIX;
-    av_strlcpy(s->addr.sun_path, filename, sizeof(s->addr.sun_path));
+	char filenamePre[1024] = {0};
+	memset(s->chunkUri, 0, sizeof(s->chunkUri));
+	char* delimiter = av_strnstr(filename,"?", strlen(filename));
+	if(delimiter != NULL){
+		memset(&s->addr, 0, sizeof(s->addr));
+		av_strlcpy(filenamePre,filename+2,(delimiter-filename)-2-1);
+		av_strlcpy(s->chunkUri,delimiter+1,strlen(filename)-strlen(delimiter)-1);
+		filename = filenamePre;
+	}
 
-    if ((fd = ff_socket(AF_UNIX, s->type, 0)) < 0){
-		av_log(s, AV_LOG_INFO, "- UNIX: fail socket=%i\n",ret);
+    s->addr.sun_family = AF_UNIX;
+    strncpy(s->addr.sun_path, filename, 90);// 90 < 102/104 for sure
+    if ((fd = ff_socket(AF_UNIX, SOCK_STREAM, 0)) < 0){
+		av_log(s, AV_LOG_INFO, "- llhls: fail socket=%i\n",ret);
         return ff_neterrno();
 	}
 
@@ -79,30 +82,21 @@ static int llhlsunix_open(URLContext *h, const char *filename, int flags)
         s->timeout = h->rw_timeout / 1000;
 	}
 
-    if (s->listen) {
-        ret = ff_listen_bind(fd, (struct sockaddr *)&s->addr,
-                             sizeof(s->addr), s->timeout, h);
-        if (ret < 0){
-			av_log(s, AV_LOG_INFO, "- UNIX: fail bind=%i\n",ret);
-            goto fail;
-		}
-        fd = ret;
-    } else {
-        ret = ff_listen_connect(fd, (struct sockaddr *)&s->addr,
-                                sizeof(s->addr), s->timeout, h, 0);
-        if (ret < 0){
-			av_log(s, AV_LOG_INFO, "- UNIX: fail listen=%i\n",ret);
-            goto fail;
-		}
-    }
-
+    ret = ff_listen_connect(fd, (struct sockaddr *)&s->addr,
+                            sizeof(s->addr), s->timeout, h, 0);
+    if (ret < 0){
+		av_log(s, AV_LOG_INFO, "- llhls: fail connect=%i\n",ret);
+        goto fail;
+	}
     s->fd = fd;
-
+	if(s->chunkUri[0] != 0){
+		// With final /0
+		ret = send(s->fd, s->chunkUri, strlen(s->chunkUri)+1, MSG_NOSIGNAL);
+		av_log(s, AV_LOG_INFO, "- llhls: requesting uri=%s, client_fd = %i, ret = %i, errno = %i\n", s->chunkUri, s->fd, ret, ff_neterrno());
+	}
     return 0;
 
 fail:
-    if (s->listen && AVUNERROR(ret) != EADDRINUSE)
-        unlink(s->addr.sun_path);
     if (fd >= 0)
         closesocket(fd);
     return ret;
@@ -112,21 +106,32 @@ static int llhlsunix_read(URLContext *h, uint8_t *buf, int size)
 {
     llhlsUnixContext *s = h->priv_data;
     int ret;
-
-    if (!(h->flags & AVIO_FLAG_NONBLOCK)) {
-        ret = ff_network_wait_fd(s->fd, 0);
-        if (ret < 0)
-            return ret;
-    }
+    //if (!(h->flags & AVIO_FLAG_NONBLOCK)) {
+    //    ret = ff_network_wait_fd(s->fd, 0);
+    //    if (ret < 0){
+	//		av_log(s, AV_LOG_INFO, "- llhls: reading wait, ret=%i\n", ret);
+    //        return ret;
+	//	}
+    //}
     ret = recv(s->fd, buf, size, 0);
-    return ret < 0 ? ff_neterrno() : ret;
+	int ret_errno = ff_neterrno();
+	//av_log(s, AV_LOG_INFO, "- llhls: reading done, ret=%i, errno=%i EAGAIN=%i\n", ret, ret_errno, AVERROR(EAGAIN));
+	if(ret < 0 && ret_errno == AVERROR(EAGAIN)){
+		//av_log(s, AV_LOG_INFO, "- llhls: reading EAGAIN, uri = %s\n", s->chunkUri);
+		return AVERROR(EAGAIN);
+	}
+	if(ret == 0){
+		av_log(s, AV_LOG_INFO, "- llhls: reading AVERROR_EOF, uri = %s\n", s->chunkUri);
+		return AVERROR_EOF;
+	}
+    //return ret < 0 ? ff_neterrno() : ret;
+	return ret;
 }
 
 static int llhlsunix_write(URLContext *h, const uint8_t *buf, int size)
 {
     llhlsUnixContext *s = h->priv_data;
     int ret;
-
     if (!(h->flags & AVIO_FLAG_NONBLOCK)) {
         ret = ff_network_wait_fd(s->fd, 1);
         if (ret < 0)
@@ -139,8 +144,6 @@ static int llhlsunix_write(URLContext *h, const uint8_t *buf, int size)
 static int llhlsunix_close(URLContext *h)
 {
     llhlsUnixContext *s = h->priv_data;
-    if (s->listen)
-        unlink(s->addr.sun_path);
     closesocket(s->fd);
     return 0;
 }
@@ -160,5 +163,5 @@ const URLProtocol ff_llhlsunix_protocol = {
     .url_get_file_handle = llhlsunix_get_file_handle,
     .priv_data_size      = sizeof(llhlsUnixContext),
     .priv_data_class     = &llhlsunix_class,
-    .flags               = URL_PROTOCOL_FLAG_NETWORK,
+    .flags               = URL_PROTOCOL_FLAG_NETWORK + AVIO_FLAG_NONBLOCK,
 };
