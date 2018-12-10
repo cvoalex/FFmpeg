@@ -35,15 +35,12 @@
 typedef struct llhlsUnixContext {
     const AVClass *class;
     struct sockaddr_un addr;
-    int timeout;
     int fd;
 	char chunkUri[1024];
 } llhlsUnixContext;
 
-#define OFFSET(x) offsetof(llhlsUnixContext, x)
 #define ED AV_OPT_FLAG_DECODING_PARAM|AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption llhlsunix_options[] = {
-    { "timeout",   "Timeout in ms",                         OFFSET(timeout), AV_OPT_TYPE_INT,   { .i64 = -1 },                  -1, INT_MAX, ED },
     { NULL }
 };
 
@@ -74,25 +71,22 @@ static int llhlsunix_open(URLContext *h, const char *filename, int flags)
     s->addr.sun_family = AF_UNIX;
     strncpy(s->addr.sun_path, filename, 90);// 90 < 102/104 for sure
     if ((fd = ff_socket(AF_UNIX, SOCK_STREAM, 0)) < 0){
-		av_log(s, AV_LOG_INFO, "- llhls: fail socket=%i\n",ret);
+		av_log(s, AV_LOG_INFO, "- llhls: ERROR. fail socket=%i\n",ret);
         return ff_neterrno();
 	}
 
-    if (s->timeout < 0 && h->rw_timeout){
-        s->timeout = h->rw_timeout / 1000;
-	}
-
+    int timeout = 100;
     ret = ff_listen_connect(fd, (struct sockaddr *)&s->addr,
-                            sizeof(s->addr), s->timeout, h, 0);
+                            sizeof(s->addr), timeout, h, 0);
     if (ret < 0){
-		av_log(s, AV_LOG_INFO, "- llhls: fail connect=%i\n",ret);
+		av_log(s, AV_LOG_INFO, "- llhls: ERROR. fail connect=%i\n",ret);
         goto fail;
 	}
     s->fd = fd;
 	if(s->chunkUri[0] != 0){
 		// With final /0
 		ret = send(s->fd, s->chunkUri, strlen(s->chunkUri)+1, MSG_NOSIGNAL);
-		av_log(s, AV_LOG_INFO, "- llhls: requesting uri=%s, client_fd = %i, ret = %i, errno = %i\n", s->chunkUri, s->fd, ret, ff_neterrno());
+		av_log(s, AV_LOG_INFO, "- llhls: OK. requesting uri=%s, client_fd = %i, ret = %i, errno = %i\n", s->chunkUri, s->fd, ret, ff_neterrno());
 	}
     return 0;
 
@@ -121,7 +115,7 @@ static int llhlsunix_read(URLContext *h, uint8_t *buf, int size)
 		return AVERROR(EAGAIN);
 	}
 	if(ret == 0){
-		av_log(s, AV_LOG_INFO, "- llhls: reading AVERROR_EOF, uri = %s\n", s->chunkUri);
+		av_log(s, AV_LOG_INFO, "- llhls: done for uri = %s\n", s->chunkUri);
 		return AVERROR_EOF;
 	}
     //return ret < 0 ? ff_neterrno() : ret;
