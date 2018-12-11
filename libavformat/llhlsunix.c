@@ -37,6 +37,7 @@ typedef struct llhlsUnixContext {
     struct sockaddr_un addr;
     int fd;
 	char chunkUri[1024];
+	int data_read;
 } llhlsUnixContext;
 
 #define ED AV_OPT_FLAG_DECODING_PARAM|AV_OPT_FLAG_ENCODING_PARAM
@@ -76,6 +77,7 @@ static int llhlsunix_open(URLContext *h, const char *filename, int flags)
 	}
 
     int timeout = 100;
+	s->data_read = 0;
     ret = ff_listen_connect(fd, (struct sockaddr *)&s->addr,
                             sizeof(s->addr), timeout, h, 0);
     if (ret < 0){
@@ -110,15 +112,18 @@ static int llhlsunix_read(URLContext *h, uint8_t *buf, int size)
     ret = recv(s->fd, buf, size, 0);
 	int ret_errno = ff_neterrno();
 	//av_log(s, AV_LOG_INFO, "- llhls: reading done, ret=%i, errno=%i EAGAIN=%i\n", ret, ret_errno, AVERROR(EAGAIN));
-	if(ret < 0 && ret_errno == AVERROR(EAGAIN)){
-		//av_log(s, AV_LOG_INFO, "- llhls: reading EAGAIN, uri = %s\n", s->chunkUri);
-		return AVERROR(EAGAIN);
+	if(ret < 0){
+		if(ret_errno == AVERROR(EAGAIN)){
+			//av_log(s, AV_LOG_INFO, "- llhls: reading EAGAIN, uri = %s\n", s->chunkUri);
+			return AVERROR(EAGAIN);
+		}
+		return ret_errno;
 	}
 	if(ret == 0){
-		av_log(s, AV_LOG_INFO, "- llhls: done for uri = %s\n", s->chunkUri);
+		av_log(s, AV_LOG_INFO, "- llhls: done for uri = %s, data_read = %i\n", s->chunkUri, s->data_read);
 		return AVERROR_EOF;
 	}
-    //return ret < 0 ? ff_neterrno() : ret;
+	s->data_read += ret;
 	return ret;
 }
 
