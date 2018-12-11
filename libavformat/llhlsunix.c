@@ -88,7 +88,7 @@ static int llhlsunix_open(URLContext *h, const char *filename, int flags)
 	if(s->chunkUri[0] != 0){
 		// With final /0
 		ret = send(s->fd, s->chunkUri, strlen(s->chunkUri)+1, MSG_NOSIGNAL);
-		av_log(s, AV_LOG_INFO, "- llhls: OK. requesting uri=%s, client_fd = %i, ret = %i, errno = %i\n", s->chunkUri, s->fd, ret, ff_neterrno());
+		av_log(s, AV_LOG_INFO, "- llhls: OK. requesting uri=%s, fd = %i, ret = %i, errno = %i\n", s->chunkUri, s->fd, ret, ff_neterrno());
 	}
     return 0;
 
