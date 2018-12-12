@@ -243,40 +243,58 @@ int ff_listen_connect(int fd, const struct sockaddr *addr,
     int ret;
     socklen_t optlen;
 
-    if (ff_socket_nonblock(fd, 1) < 0)
+    if (ff_socket_nonblock(fd, 1) < 0){
         av_log(NULL, AV_LOG_DEBUG, "ff_socket_nonblock failed\n");
-
+	}
     while ((ret = connect(fd, addr, addrlen))) {
         ret = ff_neterrno();
         switch (ret) {
         case AVERROR(EINTR):
-            if (ff_check_interrupt(&h->interrupt_callback))
-                return AVERROR_EXIT;
-            continue;
+			{
+	            if (ff_check_interrupt(&h->interrupt_callback)){
+					av_log(h, AV_LOG_INFO, "- ff_listen_connect: ERROR. ff_check_interrupt %i\n",ret);
+	                return AVERROR_EXIT;
+				}
+	            continue;
+			}
         case AVERROR(EINPROGRESS):
         case AVERROR(EAGAIN):
-            ret = ff_poll_interrupt(&p, 1, timeout, &h->interrupt_callback);
-            if (ret < 0)
-                return ret;
-            optlen = sizeof(ret);
-            if (getsockopt (fd, SOL_SOCKET, SO_ERROR, &ret, &optlen))
-                ret = AVUNERROR(ff_neterrno());
-            if (ret != 0) {
-                char errbuf[100];
-                ret = AVERROR(ret);
-                av_strerror(ret, errbuf, sizeof(errbuf));
-                if (will_try_next)
-                    av_log(h, AV_LOG_WARNING,
-                           "Connection to %s failed (%s), trying next address\n",
-                           h->filename, errbuf);
-                else
-                    av_log(h, AV_LOG_ERROR, "Connection to %s failed: %s\n",
-                           h->filename, errbuf);
-            }
+			{
+				av_log(h, AV_LOG_INFO, "- ff_listen_connect: ERROR. EAGAIN %i\n",ret);
+	            ret = ff_poll_interrupt(&p, 1, timeout, &h->interrupt_callback);
+	            if (ret < 0){
+					av_log(h, AV_LOG_INFO, "- ff_listen_connect: ERROR. ff_poll_interrupt %i\n",ret);
+	                return ret;
+				}
+	            optlen = sizeof(ret);
+	            if (getsockopt (fd, SOL_SOCKET, SO_ERROR, &ret, &optlen)){
+	                ret = AVUNERROR(ff_neterrno());
+				}
+	            if (ret != 0) {
+	                char errbuf[100];
+	                ret = AVERROR(ret);
+	                av_strerror(ret, errbuf, sizeof(errbuf));
+	                if (will_try_next)
+	                    av_log(h, AV_LOG_WARNING,
+	                           "Connection to %s failed (%s), trying next address\n",
+	                           h->filename, errbuf);
+	                else
+	                    av_log(h, AV_LOG_ERROR, "Connection to %s failed: %s\n",
+	                           h->filename, errbuf);
+	            }
+			}
         default:
-            return ret;
+			{
+				if(ret<0){
+					av_log(h, AV_LOG_INFO, "- ff_listen_connect: ERROR. default %i\n",ret);
+				}
+	            return ret;
+			}
         }
     }
+	if(ret<0){
+		av_log(h, AV_LOG_INFO, "- ff_listen_connect: ERROR. return %i\n",ret);
+	}
     return ret;
 }
 

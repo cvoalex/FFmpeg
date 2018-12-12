@@ -209,6 +209,7 @@ typedef struct HLSContext {
     int strict_std_compliance;
     char *allowed_extensions;
     int max_reload;
+	int llhls_reloadReq;
 } HLSContext;
 
 static int read_chomp_line(AVIOContext *s, char *buf, int maxlen)
@@ -674,6 +675,7 @@ static int open_url(AVFormatContext *s, AVIOContext **pb, const char *url,
 static int parse_playlist(HLSContext *c, const char *url,
                           struct playlist *pls, AVIOContext *in)
 {
+	av_log(NULL, AV_LOG_INFO, "- parse_playlist from %s\n", url);
     int ret = 0, is_segment = 0, is_variant = 0;
     int64_t duration = 0, previous_duration1 = 0, previous_duration = 0, total_duration = 0;
     enum KeyType key_type = KEY_NONE;
@@ -730,8 +732,13 @@ static int parse_playlist(HLSContext *c, const char *url,
         pls->finished = 0;
         pls->type = PLS_TYPE_UNSPECIFIED;
     }
+	int pllines = 0;
     while (!avio_feof(in)) {
         read_chomp_line(in, line, sizeof(line));
+		if(pllines == 0){
+			av_log(NULL, AV_LOG_INFO, "- parse_playlist: %s\n", line);
+		}
+		pllines++;
         if (av_strstart(line, "#EXT-X-STREAM-INF:", &ptr)) {
             is_variant = 1;
             memset(&variant_info, 0, sizeof(variant_info));
@@ -1289,7 +1296,14 @@ restart:
     if (!v->needed)
         return AVERROR_EOF;
 
-    if (!v->input) {
+	int needReloadPl = 0;
+	if(c->llhls_reloadReq > 0){// HLSLOWLAT
+		av_log(v->parent, AV_LOG_INFO, "- llhls: applying playlist reload\n");
+		c->llhls_reloadReq = 0;
+		needReloadPl = 1;
+	}
+
+    if (!v->input || needReloadPl > 0) {
         int64_t reload_interval;
         struct segment *seg;
 
@@ -1316,41 +1330,48 @@ restart:
 
 reload:
         reload_count++;
-        if (reload_count > c->max_reload)
-            return AVERROR_EOF;
-
-		/* // HLSLOWLAT not need to reload
-        if (!v->finished &&
-            av_gettime_relative() - v->last_load_time >= reload_interval) {
-            if ((ret = parse_playlist(c, v->url, v, NULL)) < 0) {
+        //if (reload_count > c->max_reload)
+        //    return AVERROR_EOF;
+		// HLSLOWLAT: default not needed
+        // if (!v->finished &&
+        //     av_gettime_relative() - v->last_load_time >= reload_interval) {
+        //     if ((ret = parse_playlist(c, v->url, v, NULL)) < 0) {
+        //         av_log(v->parent, AV_LOG_WARNING, "Failed to reload playlist %d\n",
+        //                v->index);
+        //         return ret;
+        //     }
+        //     // If we need to reload the playlist again below (if
+        //     // there's still no more segments), switch to a reload
+        //     // interval of half the target duration
+        //     reload_interval = v->target_duration / 2;
+        // }
+		if(needReloadPl > 0){
+			// HLSLOWLAT: custom reload from start, if needed
+			if ((ret = parse_playlist(c, v->url, v, NULL)) < 0) {
                 av_log(v->parent, AV_LOG_WARNING, "Failed to reload playlist %d\n",
                        v->index);
                 return ret;
             }
-            // If we need to reload the playlist again below (if
-            // there's still no more segments), switch to a reload
-            // interval of half the target duration
-            reload_interval = v->target_duration / 2;
-        }
-		*/
-        if (v->cur_seq_no < v->start_seq_no) {
-            av_log(NULL, AV_LOG_WARNING,
-                   "skipping %d segments ahead, expired from playlists\n",
-                   v->start_seq_no - v->cur_seq_no);
-            v->cur_seq_no = v->start_seq_no;
-        }
-        if (v->cur_seq_no >= v->start_seq_no + v->n_segments) {
-            if (v->finished)
-                return AVERROR_EOF;
-            while (av_gettime_relative() - v->last_load_time < reload_interval) {
-                if (ff_check_interrupt(c->interrupt_callback))
-                    return AVERROR_EXIT;
-                av_usleep(100*1000);
-            }
-            /* Enough time has elapsed since the last reload */
-            goto reload;
-        }
-
+			v->cur_seq_no = v->start_seq_no;// From very beginning
+		}else{
+	        if (v->cur_seq_no < v->start_seq_no) {
+	            av_log(NULL, AV_LOG_WARNING,
+	                   "skipping %d segments ahead, expired from playlists\n",
+	                   v->start_seq_no - v->cur_seq_no);
+	            v->cur_seq_no = v->start_seq_no;
+	        }
+	        if (v->cur_seq_no >= v->start_seq_no + v->n_segments) {
+	            if (v->finished)
+	                return AVERROR_EOF;
+	            while (av_gettime_relative() - v->last_load_time < reload_interval) {
+	                if (ff_check_interrupt(c->interrupt_callback))
+	                    return AVERROR_EXIT;
+	                av_usleep(100*1000);
+	            }
+	            /* Enough time has elapsed since the last reload */
+	            goto reload;
+	        }
+		}
         seg = current_segment(v);
 
         /* load/update Media Initialization Section, if any */
@@ -1391,9 +1412,7 @@ reload:
     }
     ff_format_io_close(v->parent, &v->input);
     v->cur_seq_no++;
-
     c->cur_seq_no = v->cur_seq_no;
-
     goto restart;
 }
 
@@ -2137,23 +2156,26 @@ static int hls_read_seek(AVFormatContext *s, int stream_index,
     int64_t first_timestamp, seek_timestamp, duration;
 
 	if((flags & 0x1000) == 0x1000){// HLSLOWLAT hack
-		// HLSLOWLAT seek2end
-		seq_no = 0;
-		for (i = 0; i < c->n_playlists; i++) {
-	        struct playlist *pls = c->playlists[i];
-	        if (pls->n_segments == 0)
-	            continue;
-			seek_pls = pls;
-	        seq_no = select_cur_seq_no(c, pls);// HLSLOWLAT: Jump to latest for unfinished
-			seek_timestamp = AV_NOPTS_VALUE;
-			break;
-	    }
-		av_log(s, AV_LOG_INFO, "- HLSLOWLAT hls_read_seek possible segment skip: %i->%i \n",seek_pls->cur_seq_no,seq_no);
-		if(seq_no <= seek_pls->cur_seq_no){
-			// no change
-			return AVERROR(ENOSYS);
-		}
-		seek_pls->cur_seq_no = seq_no;
+		// HLSLOWLAT forcePlaylistReload
+		av_log(s, AV_LOG_INFO, "- llhls: forcing playlist reload\n");
+		c->llhls_reloadReq++;
+		return AVERROR(EIO);
+		// seq_no = 0;
+		// for (i = 0; i < c->n_playlists; i++) {
+	    //     struct playlist *pls = c->playlists[i];
+	    //     if (pls->n_segments == 0)
+	    //         continue;
+		// 	seek_pls = pls;
+	    //     seq_no = select_cur_seq_no(c, pls);// HLSLOWLAT: Jump to latest for unfinished
+		// 	seek_timestamp = AV_NOPTS_VALUE;
+		// 	break;
+	    // }
+		// av_log(s, AV_LOG_INFO, "- HLSLOWLAT hls_read_seek possible segment skip: %i->%i \n",seek_pls->cur_seq_no,seq_no);
+		// if(seq_no <= seek_pls->cur_seq_no){
+		// 	// no change
+		// 	return AVERROR(ENOSYS);
+		// }
+		// seek_pls->cur_seq_no = seq_no;
 	}else{
 	    if ((flags & AVSEEK_FLAG_BYTE) ||
 	        !(c->variants[0]->playlists[0]->finished || c->variants[0]->playlists[0]->type == PLS_TYPE_EVENT))

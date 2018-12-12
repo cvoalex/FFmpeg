@@ -27,10 +27,12 @@
 
 #include "libavutil/avstring.h"
 #include "libavutil/opt.h"
+#include "libavutil/time.h"
 #include "os_support.h"
 #include "network.h"
 #include <sys/un.h>
 #include "url.h"
+
 
 typedef struct llhlsUnixContext {
     const AVClass *class;
@@ -80,6 +82,13 @@ static int llhlsunix_open(URLContext *h, const char *filename, int flags)
 	s->data_read = 0;
     ret = ff_listen_connect(fd, (struct sockaddr *)&s->addr,
                             sizeof(s->addr), timeout, h, 0);
+	if (ret == -61){
+		// During player reloads shutdowns may need reader to wait
+		av_log(s, AV_LOG_INFO, "- llhls: ERROR. fail connect=%i, trying again...\n",ret);
+		av_usleep(300);
+		ret = ff_listen_connect(fd, (struct sockaddr *)&s->addr,
+								sizeof(s->addr), timeout, h, 0);
+	}
     if (ret < 0){
 		av_log(s, AV_LOG_INFO, "- llhls: ERROR. fail connect=%i\n",ret);
         goto fail;
@@ -93,8 +102,9 @@ static int llhlsunix_open(URLContext *h, const char *filename, int flags)
     return 0;
 
 fail:
-    if (fd >= 0)
+    if (fd >= 0){
         closesocket(fd);
+	}
     return ret;
 }
 
@@ -144,6 +154,7 @@ static int llhlsunix_close(URLContext *h)
 {
     llhlsUnixContext *s = h->priv_data;
     closesocket(s->fd);
+	//av_log(s, AV_LOG_INFO, "- llhls: closing socket for uri = %s, data_read = %i\n", s->chunkUri, s->data_read);
     return 0;
 }
 
