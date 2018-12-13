@@ -46,6 +46,7 @@
 
 #define MPEG_TIME_BASE 90000
 #define MPEG_TIME_BASE_Q (AVRational){1, MPEG_TIME_BASE}
+#define DVGLLPlayerFramework_VERSION_ffmpeg "1.0.34"
 
 /*
  * An apple http stream consists of a playlist with media segment files,
@@ -736,7 +737,7 @@ static int parse_playlist(HLSContext *c, const char *url,
     while (!avio_feof(in)) {
         read_chomp_line(in, line, sizeof(line));
 		if(pllines == 0){
-			av_log(NULL, AV_LOG_INFO, "- parse_playlist: %s\n", line);
+			av_log(NULL, AV_LOG_INFO, "- parse_playlist: sdk=%s, %s\n", DVGLLPlayerFramework_VERSION_ffmpeg, line);
 		}
 		pllines++;
         if (av_strstart(line, "#EXT-X-STREAM-INF:", &ptr)) {
