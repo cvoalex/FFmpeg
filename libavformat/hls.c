@@ -46,7 +46,7 @@
 
 #define MPEG_TIME_BASE 90000
 #define MPEG_TIME_BASE_Q (AVRational){1, MPEG_TIME_BASE}
-#define DVGLLPlayerFramework_VERSION_ffmpeg "1.0.34"
+#define DVGLLPlayerFramework_VERSION_ffmpeg "1.0.39"
 
 /*
  * An apple http stream consists of a playlist with media segment files,

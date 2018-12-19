@@ -33,7 +33,7 @@
 #include <sys/un.h>
 #include "url.h"
 
-
+// #define DVGLLPlayerFramework_VERSION_ffmpeg "1.0.39"
 typedef struct llhlsUnixContext {
     const AVClass *class;
     struct sockaddr_un addr;
@@ -97,6 +97,11 @@ static int llhlsunix_open(URLContext *h, const char *filename, int flags)
 	if(s->chunkUri[0] != 0){
 		// With final /0
 		ret = send(s->fd, s->chunkUri, strlen(s->chunkUri)+1, MSG_NOSIGNAL);
+		if(ret <= 0){
+			av_log(s, AV_LOG_INFO, "- llhls: ERROR. fail send=%i, trying again...\n",ret);
+			av_usleep(300);
+			ret = send(s->fd, s->chunkUri, strlen(s->chunkUri)+1, MSG_NOSIGNAL);
+		}
 		av_log(s, AV_LOG_INFO, "- llhls: OK. requesting uri=%s, fd = %i, ret = %i, errno = %i\n", s->chunkUri, s->fd, ret, ff_neterrno());
 	}
     return 0;
