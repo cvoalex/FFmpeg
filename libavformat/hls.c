@@ -211,6 +211,7 @@ typedef struct HLSContext {
     char *allowed_extensions;
     int max_reload;
 	int llhls_reloadReq;
+	int llhls_fullstopReq;
 } HLSContext;
 
 static int read_chomp_line(AVIOContext *s, char *buf, int maxlen)
@@ -1381,12 +1382,15 @@ reload:
             return ret;
 
 		//av_log(v->parent, AV_LOG_WARNING, "- open_input of playlist %d, seg %i\n", v->index, seg);
+		if (c->llhls_fullstopReq > 0){
+			av_log(v->parent, AV_LOG_WARNING, "Stopping playback of playlist\n");
+			return AVERROR_EXIT;
+		}
         ret = open_input(c, v, seg);
         if (ret < 0) {
             if (ff_check_interrupt(c->interrupt_callback))
                 return AVERROR_EXIT;
-            av_log(v->parent, AV_LOG_WARNING, "Failed to open segment of playlist %d\n",
-                   v->index);
+            av_log(v->parent, AV_LOG_WARNING, "Failed to open segment of playlist %d\n", v->index);
             v->cur_seq_no += 1;
             goto reload;
         }
@@ -2161,22 +2165,11 @@ static int hls_read_seek(AVFormatContext *s, int stream_index,
 		av_log(s, AV_LOG_INFO, "- llhls: forcing playlist reload\n");
 		c->llhls_reloadReq++;
 		return AVERROR(EIO);
-		// seq_no = 0;
-		// for (i = 0; i < c->n_playlists; i++) {
-	    //     struct playlist *pls = c->playlists[i];
-	    //     if (pls->n_segments == 0)
-	    //         continue;
-		// 	seek_pls = pls;
-	    //     seq_no = select_cur_seq_no(c, pls);// HLSLOWLAT: Jump to latest for unfinished
-		// 	seek_timestamp = AV_NOPTS_VALUE;
-		// 	break;
-	    // }
-		// av_log(s, AV_LOG_INFO, "- HLSLOWLAT hls_read_seek possible segment skip: %i->%i \n",seek_pls->cur_seq_no,seq_no);
-		// if(seq_no <= seek_pls->cur_seq_no){
-		// 	// no change
-		// 	return AVERROR(ENOSYS);
-		// }
-		// seek_pls->cur_seq_no = seq_no;
+	}else  if((flags & 0x2000) == 0x2000){// HLSLOWLAT hack
+			// HLSLOWLAT forcePlaylistReload
+			av_log(s, AV_LOG_INFO, "- llhls: forcing playlist stop\n");
+			c->llhls_fullstopReq++;
+			return AVERROR(EIO);
 	}else{
 	    if ((flags & AVSEEK_FLAG_BYTE) ||
 	        !(c->variants[0]->playlists[0]->finished || c->variants[0]->playlists[0]->type == PLS_TYPE_EVENT))
