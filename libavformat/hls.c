@@ -157,6 +157,8 @@ struct playlist {
      * playlist, if any. */
     int n_init_sections;
     struct segment **init_sections;
+
+	int llhls_isLowlatPlaylist;//HLSLOWLAT
 };
 
 /*
@@ -733,15 +735,17 @@ static int parse_playlist(HLSContext *c, const char *url,
         free_segment_list(pls);
         pls->finished = 0;
         pls->type = PLS_TYPE_UNSPECIFIED;
+		pls->llhls_isLowlatPlaylist = 0;
     }
-	int pllines = 0;
     while (!avio_feof(in)) {
         read_chomp_line(in, line, sizeof(line));
-		if(pllines == 0){
-			av_log(NULL, AV_LOG_INFO, "- parse_playlist: sdk=%s, %s\n", DVGLLPlayerFramework_VERSION_ffmpeg, line);
-		}
-		pllines++;
-        if (av_strstart(line, "#EXT-X-STREAM-INF:", &ptr)) {
+		if (av_strstart(line, "##EXT-X-LLHLS", &ptr)) {
+			ret = ensure_playlist(c, &pls, url);
+            if (ret < 0)
+                goto fail;
+			pls->llhls_isLowlatPlaylist = 1;
+			av_log(NULL, AV_LOG_INFO, "- ll-playlist: ffhls=0.2, sdk=%s, %s\n", DVGLLPlayerFramework_VERSION_ffmpeg, line);
+        } else if (av_strstart(line, "#EXT-X-STREAM-INF:", &ptr)) {
             is_variant = 1;
             memset(&variant_info, 0, sizeof(variant_info));
             ff_parse_key_value(ptr, (ff_parse_key_val_cb) handle_variant_args,
@@ -1332,21 +1336,23 @@ restart:
 
 reload:
         reload_count++;
-        //if (reload_count > c->max_reload)
-        //    return AVERROR_EOF;
-		// HLSLOWLAT: default not needed
-        // if (!v->finished &&
-        //     av_gettime_relative() - v->last_load_time >= reload_interval) {
-        //     if ((ret = parse_playlist(c, v->url, v, NULL)) < 0) {
-        //         av_log(v->parent, AV_LOG_WARNING, "Failed to reload playlist %d\n",
-        //                v->index);
-        //         return ret;
-        //     }
-        //     // If we need to reload the playlist again below (if
-        //     // there's still no more segments), switch to a reload
-        //     // interval of half the target duration
-        //     reload_interval = v->target_duration / 2;
-        // }
+		if(v->llhls_isLowlatPlaylist == 0){
+			if (reload_count > c->max_reload){
+	            return AVERROR_EOF;
+			}
+        	if (!v->finished &&
+             	av_gettime_relative() - v->last_load_time >= reload_interval) {
+	             if ((ret = parse_playlist(c, v->url, v, NULL)) < 0) {
+	                 av_log(v->parent, AV_LOG_WARNING, "Failed to reload playlist %d\n",
+	                        v->index);
+	                 return ret;
+	             }
+	             // If we need to reload the playlist again below (if
+	             // there's still no more segments), switch to a reload
+	             // interval of half the target duration
+	             reload_interval = v->target_duration / 2;
+         	}
+		}
 		if(needReloadPl > 0){
 			// HLSLOWLAT: custom reload from start, if needed
 			if ((ret = parse_playlist(c, v->url, v, NULL)) < 0) {
@@ -1506,13 +1512,13 @@ static int find_timestamp_in_playlist(HLSContext *c, struct playlist *pls,
 static int select_cur_seq_no(HLSContext *c, struct playlist *pls)
 {
     int seq_no;
-
-	// HLSLOWLAT, ignoring seek logic
-	av_log(NULL, AV_LOG_WARNING, "- select_cur_seq_no (before): %i+%i, %i\n", pls->start_seq_no, pls->n_segments, pls->finished);
-	if (!pls->finished){
-		seq_no = pls->start_seq_no;
-		av_log(NULL, AV_LOG_WARNING, "- HLSLOWLAT Initial segment (always first): %i\n", seq_no);
-		return seq_no;
+	if(pls->llhls_isLowlatPlaylist > 0){
+		// HLSLOWLAT, ignoring seek logic
+		if (!pls->finished){
+			seq_no = pls->start_seq_no;
+			av_log(NULL, AV_LOG_WARNING, "- HLSLOWLAT Initial segment (always first): %i\n", seq_no);
+			return seq_no;
+		}
 	}
 
 	//av_log(pls->parent, AV_LOG_VERBOSE, "-- 1. select_cur_seq_no: %i %i\n",pls->finished, c->first_packet);
