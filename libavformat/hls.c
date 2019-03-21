@@ -626,6 +626,7 @@ static int open_url(AVFormatContext *s, AVIOContext **pb, const char *url,
         proto_name = avio_find_protocol_name(url);
 	}
     if (!proto_name){
+		av_log(s, AV_LOG_ERROR, "open_url %s: error, invalid proto", url);
         return AVERROR_INVALIDDATA;
 	}
     // only http(s) & file are allowed
@@ -642,15 +643,17 @@ static int open_url(AVFormatContext *s, AVIOContext **pb, const char *url,
         ;
 	} else if (av_strstart(proto_name, "unix", NULL) || av_strstart(proto_name, "llhls", NULL)) {// HLSLOWLAT
         ;
-    } else
+    } else {
+		av_log(s, AV_LOG_ERROR, "open_url %s: error, proto forbidden", url);
         return AVERROR_INVALIDDATA;
-
+	}
     if (!strncmp(proto_name, url, strlen(proto_name)) && url[strlen(proto_name)] == ':')
         ;
     else if (av_strstart(url, "crypto", NULL) && !strncmp(proto_name, url + 7, strlen(proto_name)) && url[7 + strlen(proto_name)] == ':')
         ;
-    else if (strcmp(proto_name, "file") || !strncmp(url, "file,", 5))
-        return AVERROR_INVALIDDATA;
+    else if (strcmp(proto_name, "file") || !strncmp(url, "file,", 5)){
+		return AVERROR_INVALIDDATA;
+	}
 
     ret = s->io_open(s, pb, url, AVIO_FLAG_READ, &tmp);
     if (ret >= 0) {
@@ -666,13 +669,15 @@ static int open_url(AVFormatContext *s, AVIOContext **pb, const char *url,
         }
 
         av_dict_set(&opts, "cookies", c->cookies, 0);
-    }
+    }else{
+		av_log(s, AV_LOG_ERROR, "open_url %s: error, io_open failed", url);
+	}
 
     av_dict_free(&tmp);
 
-    if (is_http)
+    if (is_http){
         *is_http = av_strstart(proto_name, "http", NULL);
-
+	}
     return ret;
 }
 
@@ -1269,9 +1274,15 @@ static int update_init_section(struct playlist *pls, struct segment *seg)
                         pls->init_sec_buf_size, READ_COMPLETE);
     ff_format_io_close(pls->parent, &pls->input);
 
-    if (ret < 0)
+    if (ret < 0){
+		av_log(pls->parent, AV_LOG_DEBUG,
+	           "ERROR: Downloading an initialization section of size %"PRId64" failed!\n",
+	           sec_size);
         return ret;
-
+	}
+	av_log(pls->parent, AV_LOG_DEBUG,
+		   "Downloading an initialization section of size %"PRId64" succeded\n",
+		   sec_size);
     pls->cur_init_section = seg->init_section;
     pls->init_sec_data_len = ret;
     pls->init_sec_buf_read_offset = 0;
