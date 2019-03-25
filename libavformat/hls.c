@@ -46,7 +46,7 @@
 
 #define MPEG_TIME_BASE 90000
 #define MPEG_TIME_BASE_Q (AVRational){1, MPEG_TIME_BASE}
-#define DVGLLPlayerFramework_VERSION_ffmpeg "1.0.39"
+#define DVGLLPlayerFramework_VERSION_ffmpeg "1.1.5"
 
 /*
  * An apple http stream consists of a playlist with media segment files,
@@ -1318,6 +1318,24 @@ restart:
 		av_log(v->parent, AV_LOG_INFO, "- llhls: applying playlist reload\n");
 		c->llhls_reloadReq = 0;
 		needReloadPl = 1;
+
+
+		av_log(v->parent, AV_LOG_INFO, "- llhls: flushing subdemuxers\n");
+		for (i = 0; i < c->n_playlists; i++) {
+			/* Reset reading */
+			struct playlist *pls = c->playlists[i];
+			if (pls->input)
+				ff_format_io_close(pls->parent, &pls->input);
+			av_packet_unref(&pls->pkt);
+			reset_packet(&pls->pkt);
+			pls->pb.eof_reached = 0;
+			/* Clear any buffered data */
+			pls->pb.buf_end = pls->pb.buf_ptr = pls->pb.buffer;
+			/* Reset the pos, to let the mpegts demuxer know we've seeked. */
+			pls->pb.pos = 0;
+			/* Flush the packet queue of the subdemuxer. */
+			ff_read_frame_flush(pls->ctx);
+		}
 	}
 
     if (!v->input || needReloadPl > 0) {
