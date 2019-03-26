@@ -214,6 +214,7 @@ typedef struct HLSContext {
     int max_reload;
 	int llhls_reloadReq;
 	int llhls_fullstopReq;
+	int llhls_chunkskipReq;
 } HLSContext;
 
 static int read_chomp_line(AVIOContext *s, char *buf, int maxlen)
@@ -1319,6 +1320,15 @@ restart:
 		c->llhls_reloadReq = 0;
 		needReloadPl = 1;
 	}
+	if(c->llhls_chunkskipReq > 0){
+		av_log(v->parent, AV_LOG_INFO, "- llhls: applying playlist chunkskip (%d+%d)\n", v->cur_seq_no-1,c->llhls_chunkskipReq);
+		v->cur_seq_no = v->cur_seq_no + c->llhls_chunkskipReq - 1;// cur_seq_no already+1
+		if (v->cur_seq_no >= v->start_seq_no + v->n_segments) {
+			v->cur_seq_no = v->start_seq_no + v->n_segments;
+		}
+		c->llhls_chunkskipReq = 0;
+	}
+
 
     if (!v->input || needReloadPl > 0) {
         int64_t reload_interval;
@@ -2178,14 +2188,16 @@ static int hls_read_seek(AVFormatContext *s, int stream_index,
     int64_t first_timestamp, seek_timestamp, duration;
 
 	if((flags & 0x1000) == 0x1000){// HLSLOWLAT hack
-		// HLSLOWLAT forcePlaylistReload
 		av_log(s, AV_LOG_INFO, "- llhls: forcing playlist reload\n");
 		c->llhls_reloadReq++;
 		return AVERROR(EIO);
 	}else  if((flags & 0x2000) == 0x2000){// HLSLOWLAT hack
-			// HLSLOWLAT forcePlaylistReload
 			av_log(s, AV_LOG_INFO, "- llhls: forcing playlist stop\n");
 			c->llhls_fullstopReq++;
+			return AVERROR(EIO);
+	}else  if((flags & 0x4000) == 0x4000){// HLSLOWLAT hack
+			av_log(s, AV_LOG_INFO, "- llhls: forcing playlist chunkskip (%d)\n", timestamp);
+			c->llhls_chunkskipReq = timestamp;
 			return AVERROR(EIO);
 	}else{
 	    if ((flags & AVSEEK_FLAG_BYTE) ||
