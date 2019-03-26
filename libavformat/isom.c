@@ -29,6 +29,11 @@
 #include "libavutil/avstring.h"
 #include "libavutil/intreadwrite.h"
 
+const AVCodecTag ff_codec_movdata_tags[] = {
+    { AV_CODEC_ID_BIN_DATA, MKTAG('g', 'p', 'm', 'd') },
+    { AV_CODEC_ID_NONE, 0 },
+};
+
 /* http://www.mp4ra.org */
 /* ordered by muxing preference */
 const AVCodecTag ff_mp4_obj_type[] = {

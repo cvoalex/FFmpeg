@@ -40,11 +40,113 @@ extern const AVCodecTag ff_mp4_obj_type[];
 extern const AVCodecTag ff_codec_movvideo_tags[];
 extern const AVCodecTag ff_codec_movaudio_tags[];
 extern const AVCodecTag ff_codec_movsubtitle_tags[];
+extern const AVCodecTag ff_codec_movdata_tags[];
 
 int ff_mov_iso639_to_lang(const char lang[4], int mp4);
 int ff_mov_lang_to_iso639(unsigned code, char to[4]);
 
 struct AVAESCTR;
+
+
+/**
+ * This describes info used to initialize an encryption key system.
+ *
+ * The size of this struct is not part of the public ABI.
+ */
+typedef struct AVEncryptionInitInfo {
+    /**
+     * A unique identifier for the key system this is for, can be NULL if it
+     * is not known.  This should always be 16 bytes, but may change in the
+     * future.
+     */
+    uint8_t* system_id;
+    uint32_t system_id_size;
+
+    /**
+     * An array of key IDs this initialization data is for.  All IDs are the
+     * same length.  Can be NULL if there are no known key IDs.
+     */
+    uint8_t** key_ids;
+    /** The number of key IDs. */
+    uint32_t num_key_ids;
+    /**
+     * The number of bytes in each key ID.  This should always be 16, but may
+     * change in the future.
+     */
+    uint32_t key_id_size;
+
+    /**
+     * Key-system specific initialization data.  This data is copied directly
+     * from the file and the format depends on the specific key system.  This
+     * can be NULL if there is no initialization data; in that case, there
+     * will be at least one key ID.
+     */
+    uint8_t* data;
+    uint32_t data_size;
+
+    /**
+     * An optional pointer to the next initialization info in the list.
+     */
+    struct AVEncryptionInitInfo *next;
+} AVEncryptionInitInfo;
+
+typedef struct AVSubsampleEncryptionInfo {
+    /** The number of bytes that are clear. */
+    unsigned int bytes_of_clear_data;
+
+    /**
+     * The number of bytes that are protected.  If using pattern encryption,
+     * the pattern applies to only the protected bytes; if not using pattern
+     * encryption, all these bytes are encrypted.
+     */
+    unsigned int bytes_of_protected_data;
+} AVSubsampleEncryptionInfo;
+
+/**
+ * This describes encryption info for a packet.  This contains frame-specific
+ * info for how to decrypt the packet before passing it to the decoder.
+ *
+ * The size of this struct is not part of the public ABI.
+ */
+typedef struct AVEncryptionInfo {
+    /** The fourcc encryption scheme, in big-endian byte order. */
+    uint32_t scheme;
+
+    /**
+     * Only used for pattern encryption.  This is the number of 16-byte blocks
+     * that are encrypted.
+     */
+    uint32_t crypt_byte_block;
+
+    /**
+     * Only used for pattern encryption.  This is the number of 16-byte blocks
+     * that are clear.
+     */
+    uint32_t skip_byte_block;
+
+    /**
+     * The ID of the key used to encrypt the packet.  This should always be
+     * 16 bytes long, but may be changed in the future.
+     */
+    uint8_t *key_id;
+    uint32_t key_id_size;
+
+    /**
+     * The initialization vector.  This may have been zero-filled to be the
+     * correct block size.  This should always be 16 bytes long, but may be
+     * changed in the future.
+     */
+    uint8_t *iv;
+    uint32_t iv_size;
+
+    /**
+     * An array of subsample encryption info specifying how parts of the sample
+     * are encrypted.  If there are no subsamples, then the whole sample is
+     * encrypted.
+     */
+    AVSubsampleEncryptionInfo *subsamples;
+    uint32_t subsample_count;
+} AVEncryptionInfo;
 
 /* the QuickTime file format is quite convoluted...
  * it has lots of index tables, each indexing something in another one...
@@ -85,6 +187,7 @@ typedef struct MOVAtom {
 struct MOVParseTableEntry;
 
 typedef struct MOVFragment {
+    int found_tfhd;
     unsigned track_id;
     uint64_t base_data_offset;
     uint64_t moof_offset;
@@ -93,7 +196,6 @@ typedef struct MOVFragment {
     unsigned duration;
     unsigned size;
     unsigned flags;
-    int64_t time;
 } MOVFragment;
 
 typedef struct MOVTrackExt {
@@ -109,23 +211,49 @@ typedef struct MOVSbgp {
     unsigned int index;
 } MOVSbgp;
 
+typedef struct MOVEncryptionIndex {
+    // Individual encrypted samples.  If there are no elements, then the default
+    // settings will be used.
+    unsigned int nb_encrypted_samples;
+    //AVEncryptionInfo **encrypted_samples;
+
+    uint8_t* auxiliary_info_sizes;
+    size_t auxiliary_info_sample_count;
+    uint8_t auxiliary_info_default_size;
+    uint64_t* auxiliary_offsets;  ///< Absolute seek position
+    size_t auxiliary_offsets_count;
+} MOVEncryptionIndex;
+
+typedef struct MOVFragmentStreamInfo {
+    int id;
+    int64_t sidx_pts;
+    int64_t first_tfra_pts;
+    int64_t tfdt_dts;
+    int index_entry;
+    MOVEncryptionIndex *encryption_index;
+} MOVFragmentStreamInfo;
+
 typedef struct MOVFragmentIndexItem {
     int64_t moof_offset;
-    int64_t time;
     int headers_read;
+    int current;
+    int nb_stream_info;
+    MOVFragmentStreamInfo * stream_info;
 } MOVFragmentIndexItem;
 
 typedef struct MOVFragmentIndex {
-    unsigned track_id;
-    unsigned item_count;
-    unsigned current_item;
-    MOVFragmentIndexItem *items;
+    int allocated_size;
+    int complete;
+    int current;
+    int nb_items;
+    MOVFragmentIndexItem * item;
 } MOVFragmentIndex;
 
 typedef struct MOVIndexRange {
     int64_t start;
     int64_t end;
 } MOVIndexRange;
+
 
 typedef struct MOVStreamContext {
     AVIOContext *pb;
@@ -158,6 +286,7 @@ typedef struct MOVStreamContext {
     int *keyframes;
     int time_scale;
     int64_t time_offset;  ///< time offset of the edit list entries
+    int64_t min_corrected_pts;  ///< minimum Composition time shown by the edits excluding empty edits.
     int current_sample;
     int64_t current_index;
     MOVIndexRange* index_ranges;
@@ -191,6 +320,7 @@ typedef struct MOVStreamContext {
     int *extradata_size;
     int last_stsd_index;
     int stsd_count;
+    int stsd_version;
 
     int32_t *display_matrix;
     AVStereo3D *stereo3d;
@@ -204,15 +334,10 @@ typedef struct MOVStreamContext {
 
     int has_sidx;  // If there is an sidx entry for this stream.
     struct {
-        int use_subsamples;
-        uint8_t* auxiliary_info;
-        uint8_t* auxiliary_info_end;
-        uint8_t* auxiliary_info_pos;
-        uint8_t auxiliary_info_default_size;
-        uint8_t* auxiliary_info_sizes;
-        size_t auxiliary_info_sizes_count;
-        int64_t auxiliary_info_index;
         struct AVAESCTR* aes_ctr;
+        unsigned int per_sample_iv_size;  // Either 0, 8, or 16.
+        //AVEncryptionInfo *default_encrypted_sample;
+        MOVEncryptionIndex *encryption_index;
     } cenc;
 } MOVStreamContext;
 
@@ -250,9 +375,7 @@ typedef struct MOVContext {
     int moov_retry;
     int use_mfra_for;
     int has_looked_for_mfra;
-    MOVFragmentIndex** fragment_index_data;
-    unsigned fragment_index_count;
-    int fragment_index_complete;
+    MOVFragmentIndex frag_index;
     int atom_depth;
     unsigned int aax_mode;  ///< 'aax' file has been detected
     uint8_t file_key[20];
