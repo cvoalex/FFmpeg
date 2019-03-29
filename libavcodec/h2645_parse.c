@@ -330,10 +330,12 @@ int ff_h2645_packet_split(H2645Packet *pkt, const uint8_t *buf, int length,
         if (consumed < 0)
             return consumed;
 
-        if (is_nalff && (extract_length != consumed) && extract_length)
+        if (is_nalff && (extract_length != consumed) && extract_length){
             av_log(logctx, AV_LOG_DEBUG,
-                   "NALFF: Consumed only %d bytes instead of %d\n",
+                   "NALFF: Consumed only %d bytes instead of %d, exiting\n",
                    consumed, extract_length);
+			//return AVERROR_INVALIDDATA;
+		}
 
         pkt->nb_nals++;
 

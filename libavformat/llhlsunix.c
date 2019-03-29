@@ -33,12 +33,14 @@
 #include <sys/un.h>
 #include "url.h"
 
-// #define DVGLLPlayerFramework_VERSION_ffmpeg "1.0.39"
+#define kLLHLS_UNIX_MAGIC_ERROR "<<<=== MAGIC_ERROR_STRING {SHOULDNT BE IN TS/MP4} ===>>>"
+
 typedef struct llhlsUnixContext {
     const AVClass *class;
     struct sockaddr_un addr;
     int fd;
 	char chunkUri[1024];
+	char chunkLastbytes[1024];
 	int data_read;
 } llhlsUnixContext;
 
@@ -54,13 +56,30 @@ static const AVClass llhlsunix_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
+static char *findBufStr(char *str, const char *substr, size_t n)
+{
+    char *p = str, *pEnd = str+n;
+    size_t substr_len = strlen(substr);
+
+    if(0 == substr_len)
+        return str; // the empty string is contained everywhere.
+
+    pEnd -= (substr_len - 1);
+    for(;p < pEnd; ++p)
+    {
+        if(0 == strncmp(p, substr, substr_len))
+            return p;
+    }
+    return NULL;
+}
+
 static int llhlsunix_open(URLContext *h, const char *filename, int flags)
 {
     llhlsUnixContext *s = h->priv_data;
+	memset(s->chunkLastbytes, 0, sizeof(s->chunkLastbytes));
     int fd = 0, ret = 0;
 
     av_strstart(filename, "llhls:", &filename);
-
 	char filenamePre[1024] = {0};
 	memset(s->chunkUri, 0, sizeof(s->chunkUri));
 	char* delimiter = av_strnstr(filename,"?", strlen(filename));
@@ -133,6 +152,20 @@ static int llhlsunix_read(URLContext *h, uint8_t *buf, int size)
 			return AVERROR(EAGAIN);
 		}
 		return ret_errno;
+	}
+	if(ret > 0){
+		int lastbytes = FFMIN(ret, sizeof(s->chunkLastbytes));
+		int lastoffset = 0;
+		if(ret > sizeof(s->chunkLastbytes)){
+			lastoffset = ret-sizeof(s->chunkLastbytes);
+		}
+		memcpy(s->chunkLastbytes, buf+lastoffset, lastbytes);
+	}
+	// Checking last datas for magic error code value - kLLHLS_UNIX_MAGIC_ERROR
+	const char *magicErr = kLLHLS_UNIX_MAGIC_ERROR;
+	if(findBufStr(s->chunkLastbytes, magicErr, sizeof(s->chunkLastbytes)) != NULL){
+		av_log(s, AV_LOG_INFO, "- llhls: error for uri = %s, data_read = %i\n", s->chunkUri, s->data_read);
+		return AVERROR_INVALIDDATA;
 	}
 	if(ret == 0){
 		av_log(s, AV_LOG_INFO, "- llhls: done for uri = %s, data_read = %i\n", s->chunkUri, s->data_read);

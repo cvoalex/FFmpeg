@@ -215,6 +215,7 @@ typedef struct HLSContext {
 	int llhls_reloadReq;
 	int llhls_fullstopReq;
 	int llhls_chunkskipReq;
+	int llhls_chunkMaxRealt;
 } HLSContext;
 
 static int read_chomp_line(AVIOContext *s, char *buf, int maxlen)
@@ -1156,8 +1157,8 @@ static int open_input(HLSContext *c, struct playlist *pls, struct segment *seg)
     }
 
 	av_log(NULL, AV_LOG_ERROR, "[HLSLOWLAT]");
-    av_log(pls->parent, AV_LOG_VERBOSE, "HLS request for url '%s', playlist %d\n",
-           seg->url, pls->index);
+    av_log(pls->parent, AV_LOG_VERBOSE, "HLS request for url '%s'\n",
+           seg->url);
 
     if (seg->key_type == KEY_NONE) {
         ret = open_url(pls->parent, &pls->input, seg->url, c->avio_opts, opts, &is_http);
@@ -1320,17 +1321,30 @@ restart:
 		c->llhls_reloadReq = 0;
 		needReloadPl = 1;
 	}
-	if(c->llhls_chunkskipReq > 0){
-		av_log(v->parent, AV_LOG_INFO, "- llhls: applying playlist chunkskip (%d+%d)\n", v->cur_seq_no-1,c->llhls_chunkskipReq);
-		v->cur_seq_no = v->cur_seq_no + c->llhls_chunkskipReq - 1;// cur_seq_no already+1
-		if (v->cur_seq_no >= v->start_seq_no + v->n_segments) {
-			v->cur_seq_no = v->start_seq_no + v->n_segments;
-		}
-		c->llhls_chunkskipReq = 0;
-	}
-
-
     if (!v->input || needReloadPl > 0) {
+		if(c->llhls_chunkskipReq > 0){
+			int cur_seq_no_before = v->cur_seq_no;
+			v->cur_seq_no = c->llhls_chunkskipReq;
+			c->llhls_chunkskipReq = 0;
+			// for (i = 0; i < c->n_playlists; i++) {
+			//     /* Reset reading */
+			//     struct playlist *pls = c->playlists[i];
+			//     if (pls->input){
+			//         ff_format_io_close(pls->parent, &pls->input);
+			// 	}
+			//     av_packet_unref(&pls->pkt);
+			//     reset_packet(&pls->pkt);
+			//     pls->pb.eof_reached = 0;
+			//     /* Clear any buffered data */
+			//     pls->pb.buf_end = pls->pb.buf_ptr = pls->pb.buffer;
+			//     /* Reset the pos, to let the mpegts demuxer know we've seeked. */
+			//     pls->pb.pos = 0;
+			//     /* Flush the packet queue of the subdemuxer. */
+			//     ff_read_frame_flush(pls->ctx);
+			// }
+			av_log(v->parent, AV_LOG_INFO, "- llhls: applying playlist chunkskip (%d -> %d)\n", cur_seq_no_before, v->cur_seq_no);
+		}
+
         int64_t reload_interval;
         struct segment *seg;
 
@@ -1408,7 +1422,6 @@ reload:
         if (ret)
             return ret;
 
-		//av_log(v->parent, AV_LOG_WARNING, "- open_input of playlist %d, seg %i\n", v->index, seg);
 		if (c->llhls_fullstopReq > 0){
 			av_log(v->parent, AV_LOG_WARNING, "Stopping playback of playlist\n");
 			return AVERROR_EXIT;
@@ -1432,6 +1445,7 @@ reload:
         return copy_size;
     }
 
+	//av_log(v->parent, AV_LOG_INFO, "- llhls: moving to chunk %s (%i)\n", current_segment(v)->url, v->cur_seq_no);
     ret = read_from_url(v, current_segment(v), buf, buf_size, READ_NORMAL);
     if (ret > 0) {
         if (just_opened && v->is_id3_timestamped != 0) {
@@ -2188,16 +2202,17 @@ static int hls_read_seek(AVFormatContext *s, int stream_index,
     int64_t first_timestamp, seek_timestamp, duration;
 
 	if((flags & 0x1000) == 0x1000){// HLSLOWLAT hack
-		av_log(s, AV_LOG_INFO, "- llhls: forcing playlist reload\n");
+		//av_log(s, AV_LOG_INFO, "- llhls: forcing playlist reload\n");
 		c->llhls_reloadReq++;
 		return AVERROR(EIO);
 	}else  if((flags & 0x2000) == 0x2000){// HLSLOWLAT hack
-			av_log(s, AV_LOG_INFO, "- llhls: forcing playlist stop\n");
+			//av_log(s, AV_LOG_INFO, "- llhls: forcing playlist stop\n");
 			c->llhls_fullstopReq++;
 			return AVERROR(EIO);
 	}else  if((flags & 0x4000) == 0x4000){// HLSLOWLAT hack
-			av_log(s, AV_LOG_INFO, "- llhls: forcing playlist chunkskip (%d)\n", timestamp);
-			c->llhls_chunkskipReq = timestamp;
+			c->llhls_chunkMaxRealt = (timestamp & 0xffff0000) >> 16;
+			c->llhls_chunkskipReq = timestamp & 0xffff;
+			//av_log(s, AV_LOG_INFO, "- llhls: forcing playlist chunkskip (%d)\n",  c->llhls_chunkskipReq);
 			return AVERROR(EIO);
 	}else{
 	    if ((flags & AVSEEK_FLAG_BYTE) ||

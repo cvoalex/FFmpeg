@@ -6863,8 +6863,27 @@ static int mov_read_default(MOVContext *c, AVIOContext *pb, MOVAtom atom)
                 total_size += 8;
             }
         }
-        av_log(c->fc, AV_LOG_TRACE, "type:'%s' parent:'%s' sz: %"PRId64" %"PRId64" %"PRId64"\n",
-               av_fourcc2str(a.type), av_fourcc2str(atom.type), a.size, total_size, atom.size);
+		int isOk = 1;
+		if(atom.type == MKTAG('r','o','o','t')){// HLSLOWLAT
+			 isOk = 0;
+			// Valid tags for llhls case are moof mdat moov ftyp
+			// on broken input there can be false detections of weird tags
+            if(a.type == MKTAG('m','o','o','f')
+               || a.type == MKTAG('m','d','a','t')
+               || a.type == MKTAG('m','o','o','v')
+               || a.type == MKTAG('f','t','y','p')){
+                isOk++;
+            }
+		}
+        av_log(c->fc, AV_LOG_TRACE, "type:'%s' parent:'%s' sz: %"PRId64" %"PRId64" %"PRId64" ~%i\n",
+               av_fourcc2str(a.type), av_fourcc2str(atom.type), a.size, total_size, atom.size, isOk);
+		if(isOk == 0){
+			av_log(c->fc, AV_LOG_TRACE, "- llhls: error in stream, skipping microchunk. depth=%i", c->atom_depth);
+			c->atom_depth --;
+            // skipping all the data... up to next normal microchunk
+            //avio_skip(pb, a.size);
+            return AVERROR_INVALIDDATA;
+		}
         if (a.size == 0) {
             a.size = atom.size - total_size + 8;
         }
@@ -7680,10 +7699,18 @@ static int mov_switch_root(AVFormatContext *s, int64_t target, int index)
     mov->found_mdat = 0;
 
     ret = mov_read_default(mov, s->pb, (MOVAtom){ AV_RL32("root"), INT64_MAX });
-    if (ret < 0)
+    if (ret == AVERROR_INVALIDDATA){
+        //av_log(s, AV_LOG_TRACE, "can`t read fragments, error = AVERROR_INVALIDDATA");
+        return AVERROR_INVALIDDATA;
+    }
+    if (ret < 0 || ret == AVERROR_EOF){
+        //av_log(s, AV_LOG_TRACE, "can`t read fragments, error = %i", ret);
         return ret;
-    if (avio_feof(s->pb))
+    }
+    if (avio_feof(s->pb)){
+        //av_log(s, AV_LOG_TRACE, "can`t read fragments, error = AVERROR_EOF");
         return AVERROR_EOF;
+    }
     av_log(s, AV_LOG_TRACE, "read fragments, offset 0x%"PRIx64"\n", avio_tell(s->pb));
 
     return 1;
@@ -7724,12 +7751,19 @@ static int mov_read_packet(AVFormatContext *s, AVPacket *pkt)
  retry:
     sample = mov_find_next_sample(s, &st);
     if (!sample || (mov->next_root_atom && sample->pos > mov->next_root_atom)) {
+        //av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: looking for sample\n");
         if (!mov->next_root_atom)
             return AVERROR_EOF;
-        if ((ret = mov_switch_root(s, mov->next_root_atom, -1)) < 0)
+        if ((ret = mov_switch_root(s, mov->next_root_atom, -1)) < 0){
+            pkt->flags |= AV_PKT_FLAG_CORRUPT;
             return ret;
+        }
+        if (ret == AVERROR_EOF){
+            return AVERROR_EOF;
+        }
         goto retry;
     }
+    //av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: sample found!\n");
     sc = st->priv_data;
     /* must be done just before reading, to avoid infinite loop on sample */
     current_index = sc->current_index;

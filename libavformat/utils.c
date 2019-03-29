@@ -119,6 +119,7 @@ MAKE_ACCESSORS(AVFormatContext, format, AVOpenCallback, open_cb)
 FF_ENABLE_DEPRECATION_WARNINGS
 #endif
 
+static void flush_packet_queue(AVFormatContext *s);
 int64_t av_stream_get_end_pts(const AVStream *st)
 {
     if (st->priv_pts) {
@@ -826,6 +827,19 @@ int ff_read_packet(AVFormatContext *s, AVPacket *pkt)
         pkt->size = 0;
         av_init_packet(pkt);
         ret = s->iformat->read_packet(s, pkt);
+        /*
+        if (ret == AVERROR_INVALIDDATA &&
+            (pkt->flags & AV_PKT_FLAG_CORRUPT)) {
+            av_log(s, AV_LOG_WARNING,
+                   "llhls: Dropped corrupted packet (stream = %d)\n",
+                   pkt->stream_index);
+            av_packet_unref(pkt);
+            // Flushing decoders
+            //flush_packet_queue(s);
+            //avformat_flush(s);
+            continue;
+        }
+        */
         if (ret < 0) {
             /* Some demuxers return FFERROR_REDO when they consume
                data and discard it (ignored streams, junk, extradata).
