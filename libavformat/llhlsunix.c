@@ -121,7 +121,7 @@ static int llhlsunix_open(URLContext *h, const char *filename, int flags)
 			av_usleep(300);
 			ret = send(s->fd, s->chunkUri, strlen(s->chunkUri)+1, MSG_NOSIGNAL);
 		}
-		av_log(s, AV_LOG_INFO, "- llhls: OK. requesting uri=%s, fd = %i, ret = %i, errno = %i\n", s->chunkUri, s->fd, ret, ff_neterrno());
+		av_log(s, AV_LOG_INFO, "- llhls: opening, uri = %s\n", s->chunkUri);
 	}
     return 0;
 
@@ -164,11 +164,11 @@ static int llhlsunix_read(URLContext *h, uint8_t *buf, int size)
 	// Checking last datas for magic error code value - kLLHLS_UNIX_MAGIC_ERROR
 	const char *magicErr = kLLHLS_UNIX_MAGIC_ERROR;
 	if(findBufStr(s->chunkLastbytes, magicErr, sizeof(s->chunkLastbytes)) != NULL){
-		av_log(s, AV_LOG_INFO, "- llhls: error for uri = %s, data_read = %i\n", s->chunkUri, s->data_read);
+		av_log(s, AV_LOG_INFO, "- llhls: read error, uri = %s, data_read = %i\n", s->chunkUri, s->data_read);
 		return AVERROR_INVALIDDATA;
 	}
 	if(ret == 0){
-		av_log(s, AV_LOG_INFO, "- llhls: done for uri = %s, data_read = %i\n", s->chunkUri, s->data_read);
+		av_log(s, AV_LOG_INFO, "- llhls: read done, uri = %s, data_read = %i\n", s->chunkUri, s->data_read);
 		return AVERROR_EOF;
 	}
 	s->data_read += ret;
@@ -192,7 +192,7 @@ static int llhlsunix_close(URLContext *h)
 {
     llhlsUnixContext *s = h->priv_data;
     closesocket(s->fd);
-	//av_log(s, AV_LOG_INFO, "- llhls: closing socket for uri = %s, data_read = %i\n", s->chunkUri, s->data_read);
+	av_log(s, AV_LOG_INFO, "- llhls: closing, uri = %s, data_read = %i\n", s->chunkUri, s->data_read);
     return 0;
 }
 

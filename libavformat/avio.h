@@ -537,6 +537,13 @@ void avio_write_marker(AVIOContext *s, int64_t time, enum AVIODataMarkerType typ
  */
 #define AVSEEK_FORCE 0x20000
 
+int64_t xx_avio_sz(AVIOContext *s);
+int64_t xx_avio_pos_start(AVIOContext *s);
+int64_t xx_avio_pos_cur(AVIOContext *s);
+int64_t xx_avio_find_backv(AVIOContext *s, int rl32_toFind);
+int64_t xx_avio_jump(AVIOContext *s, int64_t new_pos);
+int64_t xx_avio_refill(AVIOContext *s);
+
 /**
  * fseek() equivalent for AVIOContext.
  * @return new position or AVERROR.

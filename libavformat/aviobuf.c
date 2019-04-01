@@ -326,6 +326,59 @@ int64_t avio_seek(AVIOContext *s, int64_t offset, int whence)
     return offset;
 }
 
+int64_t xx_avio_sz(AVIOContext *s)
+{
+    int64_t buffer_size = s->buf_end - s->buffer;
+    int64_t pos = s->pos - (s->write_flag ? 0 : buffer_size);
+    return buffer_size;
+}
+int64_t xx_avio_pos_start(AVIOContext *s)
+{
+    int64_t buffer_size = s->buf_end - s->buffer;
+    int64_t pos = s->pos - (s->write_flag ? 0 : buffer_size);
+    return pos;
+}
+
+int64_t xx_avio_pos_cur(AVIOContext *s)
+{
+	return s->pos;
+}
+
+int64_t xx_avio_find_backv(AVIOContext *s, int rl32_toFind)
+{
+	int backwardOffset = 0;
+	unsigned char *test_ptr = s->buf_ptr-backwardOffset;
+	while(test_ptr >= s->buffer){
+		unsigned int val1;
+		val1 = (*(test_ptr+0));
+		val1 |= (*(test_ptr+1)) << 8;
+		unsigned int val2;
+		val2 = (*(test_ptr+2));
+		val2 |= (*(test_ptr+3)) << 8;
+		unsigned int rl32_toTest = val1;
+		rl32_toTest |= (val2 << 16);
+		if(rl32_toTest == rl32_toFind){
+			return xx_avio_pos_cur(s)-backwardOffset;
+		}
+		backwardOffset++;
+		test_ptr = s->buf_ptr-backwardOffset;
+	}
+	return -1;
+}
+
+int64_t xx_avio_jump(AVIOContext *s, int64_t new_pos)
+{
+	s->buf_ptr = s->buf_ptr + (new_pos-s->pos);
+	s->pos = new_pos;
+	return 0;
+}
+
+int64_t xx_avio_refill(AVIOContext *s)
+{
+	fill_buffer(s);
+	return 0;
+}
+
 int64_t avio_skip(AVIOContext *s, int64_t offset)
 {
     return avio_seek(s, offset, SEEK_CUR);
@@ -1107,6 +1160,8 @@ int ffio_open2_wrapper(struct AVFormatContext *s, AVIOContext **pb, const char *
 
 int avio_close(AVIOContext *s)
 {
+	av_log(s, AV_LOG_DEBUG, "avio_close: 0x%"PRIx64"\n", s);
+
     AVIOInternal *internal;
     URLContext *h;
 
