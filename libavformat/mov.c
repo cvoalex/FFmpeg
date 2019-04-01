@@ -6875,8 +6875,8 @@ static int mov_read_default(MOVContext *c, AVIOContext *pb, MOVAtom atom)
                 isOk++;
             }
 		}
-        av_log(c->fc, AV_LOG_TRACE, "type:'%s' parent:'%s' sz: %"PRId64" %"PRId64" %"PRId64" ~%i\n",
-               av_fourcc2str(a.type), av_fourcc2str(atom.type), a.size, total_size, atom.size, isOk);
+        av_log(c->fc, AV_LOG_TRACE, "ioc=0x%"PRIx64" type:'%s' parent:'%s' sz: %"PRId64" %"PRId64" %"PRId64" pos=%"PRId64"\n",
+               pb, av_fourcc2str(a.type), av_fourcc2str(atom.type), a.size, total_size, atom.size, xx_avio_pos_cur(pb));
 		if(isOk == 0){
 			av_log(c->fc, AV_LOG_TRACE, "- llhls: invalid atom in stream, skipping microchunk");
 			c->atom_depth --;
@@ -7683,6 +7683,7 @@ static int mov_switch_root(AVFormatContext *s, int64_t target, int index)
     int64_t seek_res = avio_seek(s->pb, target, SEEK_SET);
     if (seek_res != target) {
         av_log(mov->fc, AV_LOG_ERROR, "root atom offset %"PRId64": partial file (res=%"PRId64")\n", target, seek_res);
+        xx_avio_refill_reset(s->pb);
         return AVERROR_INVALIDDATA;
     }
 
@@ -7762,31 +7763,33 @@ static int mov_read_packet(AVFormatContext *s, AVPacket *pkt)
         ret = mov_switch_root(s, mov->next_root_atom, -1);
         if (ret == AVERROR_PATCHWELCOME){
             // trying to find root start manually. HLSLOWLAT
-            //pkt->flags |= AV_PKT_FLAG_CORRUPT;
-            //return ret;
-            // next_root_atom scheme expect full moof+mdat datablock to be present uncorrupted in avio buffers,
-            // But lowlat stream CAN BE BROKEN at ANY POINT
-            // Backward-searching for pos, where 'moof' atom starts. In worst case player will repeat last mdat until new data arrive
-            //xx_avio_refill(s->pb);
-            int64_t s_pos_cur1 = 0;
-            int64_t s_pos_cur2 = 0;
-            //int64_t s_pos_cur1_tag = 0;
-            int64_t prev_root_atom = xx_avio_find_backv(s->pb,MKTAG('m','o','o','f'));
-            if(prev_root_atom >= 4){
-                //xx_avio_jump(s->pb, prev_root_atom);
-                //s_pos_cur1_tag = avio_rl32(s->pb);
-                mov->next_root_atom = prev_root_atom-4;// Atoms start from size, 4 bytes
-                xx_avio_jump(s->pb, mov->next_root_atom);
-                s_pos_cur1 = xx_avio_pos_cur(s->pb);
-                ret = mov_switch_root(s, mov->next_root_atom, -1);
-                s_pos_cur2 = xx_avio_pos_cur(s->pb);
+            // next_root_atom scheme expect datablocks to be present uncorrupted in avio buffers - at least at length,
+            // But lowlat stream CAN BE BROKEN at ANY POINT, and real atom size in stream can be SHIFTED (squashed by missed parts of chunk)
+            // Forward-searching for pos, where next possible 'moof' atom starts
+            int maxRefillAttempts = 10;
+            while(maxRefillAttempts > 0){
+                int64_t find_f_res = xx_avio_find_forw(s->pb,4,MKTAG('m','o','o','f'),10000);
+                if(avio_feof(s->pb)){
+                    av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: stream corruption: recover stopped, feof. ioc=0x%"PRIx64"\n", s->pb);
+                    return AVERROR_EOF;
+                }
+                int64_t next_root_atom = xx_avio_bufpos_cur(s->pb);
+                av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: stream corruption: recover attempt. ioc=0x%"PRIx64", tmf=%"PRId64"/%"PRId64"\n", s->pb, find_f_res, next_root_atom);
+                if(find_f_res >= 0){
+                    mov->next_root_atom = next_root_atom;
+                    mov_switch_root(s, mov->next_root_atom, -1);
+                    break;
+                }
+                maxRefillAttempts--;
             }
-            if(mov->next_root_atom == 0){
+            if(maxRefillAttempts == 0){ // mov->next_root_atom == 0
                 // Restoring last known possibly good values
                 mov->next_root_atom = s_pos_valid_nra;
                 xx_avio_jump(s->pb, s_pos_cur);
+                av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: stream corruption: recover failed. ioc=0x%"PRIx64", nra2=%"PRId64"\n", s->pb, mov->next_root_atom);
+            }else{
+                av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: stream corruption: recovered. ioc=0x%"PRIx64", nra2=%"PRId64"\n", s->pb,  mov->next_root_atom);
             }
-            av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: recovering from stream corruption. ioc=0x%"PRIx64", revf=%"PRId64", nra2=%"PRId64", ccc=%"PRId64"/%"PRId64"\n", s->pb, prev_root_atom, mov->next_root_atom, s_pos_cur1, s_pos_cur2);
             goto retry;
         }
         if (ret < 0){
