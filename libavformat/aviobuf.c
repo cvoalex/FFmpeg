@@ -778,7 +778,7 @@ int ffio_read_indirect(AVIOContext *s, unsigned char *buf, int size, const unsig
 
 int avio_read_partial(AVIOContext *s, unsigned char *buf, int size)
 {
-	av_log(s, AV_LOG_DEBUG, "avio_read_partial: 0x%"PRIx64", pos=%"PRId64"\n", s, xx_avio_pos_cur(s));
+	//av_log(s, AV_LOG_DEBUG, "avio_read_partial: 0x%"PRIx64", pos=%"PRId64"\n", s, xx_avio_pos_cur(s));
     int len;
 
     if (size < 0)
@@ -1185,7 +1185,7 @@ int ffio_open2_wrapper(struct AVFormatContext *s, AVIOContext **pb, const char *
 
 int avio_close(AVIOContext *s)
 {
-	av_log(s, AV_LOG_DEBUG, "avio_close: 0x%"PRIx64"\n", s);
+	//av_log(s, AV_LOG_DEBUG, "avio_close: 0x%"PRIx64"\n", s);
 
     AVIOInternal *internal;
     URLContext *h;

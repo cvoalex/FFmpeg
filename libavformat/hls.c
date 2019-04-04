@@ -46,7 +46,7 @@
 
 #define MPEG_TIME_BASE 90000
 #define MPEG_TIME_BASE_Q (AVRational){1, MPEG_TIME_BASE}
-#define DVGLLPlayerFramework_VERSION_ffmpeg "1.1.6"
+#define DVGLLPlayerFramework_VERSION_ffmpeg "1.1.7"
 
 /*
  * An apple http stream consists of a playlist with media segment files,
@@ -1280,7 +1280,8 @@ static int update_init_section(struct playlist *pls, struct segment *seg)
 		av_log(pls->parent, AV_LOG_DEBUG,
 	           "ERROR: Downloading an initialization section of size %"PRId64" failed!\n",
 	           sec_size);
-        return ret;
+        //return ret;
+		return AVERROR_EOF;
 	}
 	av_log(pls->parent, AV_LOG_DEBUG,
 		   "Downloading an initialization section of size %"PRId64" succeded\n",

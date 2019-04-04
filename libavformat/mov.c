@@ -6875,8 +6875,8 @@ static int mov_read_default(MOVContext *c, AVIOContext *pb, MOVAtom atom)
                 isOk++;
             }
 		}
-        av_log(c->fc, AV_LOG_TRACE, "ioc=0x%"PRIx64" type:'%s' parent:'%s' sz: %"PRId64" %"PRId64" %"PRId64" pos=%"PRId64"\n",
-               pb, av_fourcc2str(a.type), av_fourcc2str(atom.type), a.size, total_size, atom.size, xx_avio_pos_cur(pb));
+        av_log(c->fc, AV_LOG_TRACE, "type:'%s' parent:'%s' sz: %"PRId64" %"PRId64" %"PRId64" pos=%"PRId64"\n",
+               av_fourcc2str(a.type), av_fourcc2str(atom.type), a.size, total_size, atom.size, xx_avio_pos_cur(pb));
 		if(isOk == 0){
 			av_log(c->fc, AV_LOG_TRACE, "- llhls: invalid atom in stream, skipping microchunk");
 			c->atom_depth --;
@@ -7663,6 +7663,9 @@ static AVIndexEntry *mov_find_next_sample(AVFormatContext *s, AVStream **st)
             }
         }
     }
+	if(sample == NULL){
+		av_log(s, AV_LOG_TRACE, "mov_find_next_sample: next sample NOT FOUND");
+	}
     return sample;
 }
 
@@ -7687,14 +7690,21 @@ static int mov_switch_root(AVFormatContext *s, int64_t target, int index)
         return AVERROR_INVALIDDATA;
     }
 
+	int index_in = index;
     mov->next_root_atom = 0;
-    if (index < 0 || index >= mov->frag_index.nb_items)
+    if (index < 0 || index >= mov->frag_index.nb_items){
         index = search_frag_moof_offset(&mov->frag_index, target);
+	}
     if (index < mov->frag_index.nb_items) {
-        if (index + 1 < mov->frag_index.nb_items)
+        if (index + 1 < mov->frag_index.nb_items){
+			if(index_in == -2){
+				mov->frag_index.item[index + 1].moof_offset = target;
+			}
             mov->next_root_atom = mov->frag_index.item[index + 1].moof_offset;
-        if (mov->frag_index.item[index].headers_read)
+		}
+        if (mov->frag_index.item[index].headers_read){
             return 0;
+		}
         mov->frag_index.item[index].headers_read = 1;
     }
 
@@ -7757,9 +7767,11 @@ static int mov_read_packet(AVFormatContext *s, AVPacket *pkt)
         int64_t s_pos_start = xx_avio_pos_start(s->pb);
         int64_t s_pos_cur = xx_avio_pos_cur(s->pb);
         int64_t s_pos_valid_nra = mov->next_root_atom;
-        av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: looking for sample: ioc=0x%"PRIx64", nra=%"PRId64", pcur=%"PRId64", pstart=%"PRId64", sz=%"PRId64"\n", s->pb, mov->next_root_atom, s_pos_cur, s_pos_start, s_size);
-        if (!mov->next_root_atom)
+        av_log(mov->fc, AV_LOG_TRACE, "mov_read_packet: looking for sample: nra=%"PRId64", pcur=%"PRId64", pstart=%"PRId64", sz=%"PRId64"\n", mov->next_root_atom, s_pos_cur, s_pos_start, s_size);
+        if (!mov->next_root_atom){
+			av_log(mov->fc, AV_LOG_TRACE, "mov_read_packet: eof");
             return AVERROR_EOF;
+		}
         ret = mov_switch_root(s, mov->next_root_atom, -1);
         if (ret == AVERROR_PATCHWELCOME){
             // trying to find root start manually. HLSLOWLAT
@@ -7770,14 +7782,18 @@ static int mov_read_packet(AVFormatContext *s, AVPacket *pkt)
             while(maxRefillAttempts > 0){
                 int64_t find_f_res = xx_avio_find_forw(s->pb,4,MKTAG('m','o','o','f'),10000);
                 if(avio_feof(s->pb)){
-                    av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: stream corruption: recover stopped, feof. ioc=0x%"PRIx64"\n", s->pb);
+                    av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: stream corruption: recover stopped, feof\n");
                     return AVERROR_EOF;
                 }
                 int64_t next_root_atom = xx_avio_bufpos_cur(s->pb);
-                av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: stream corruption: recover attempt. ioc=0x%"PRIx64", tmf=%"PRId64"/%"PRId64"\n", s->pb, find_f_res, next_root_atom);
+                av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: stream corruption: recover attempt. tmf=%"PRId64"/%"PRId64"\n", find_f_res, next_root_atom);
                 if(find_f_res >= 0){
+					//int previndex1 = search_frag_moof_offset(&mov->frag_index, mov->next_root_atom);
+					//mov->frag_index.item[previndex1].moof_offset = next_root_atom;
+					//int previndex2 = search_frag_moof_offset(&mov->frag_index, next_root_atom-1);
+					//mov->frag_index.item[previndex2].moof_offset = next_root_atom;
                     mov->next_root_atom = next_root_atom;
-                    mov_switch_root(s, mov->next_root_atom, -1);
+                    mov_switch_root(s, mov->next_root_atom, -2);
                     break;
                 }
                 maxRefillAttempts--;
@@ -7786,16 +7802,18 @@ static int mov_read_packet(AVFormatContext *s, AVPacket *pkt)
                 // Restoring last known possibly good values
                 mov->next_root_atom = s_pos_valid_nra;
                 xx_avio_jump(s->pb, s_pos_cur);
-                av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: stream corruption: recover failed. ioc=0x%"PRIx64", nra2=%"PRId64"\n", s->pb, mov->next_root_atom);
+                av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: stream corruption: recover failed. nra2=%"PRId64"\n", mov->next_root_atom);
             }else{
-                av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: stream corruption: recovered. ioc=0x%"PRIx64", nra2=%"PRId64"\n", s->pb,  mov->next_root_atom);
+                av_log(mov->fc, AV_LOG_ERROR, "mov_read_packet: stream corruption: recovered. nra2=%"PRId64"\n", mov->next_root_atom);
             }
             goto retry;
         }
         if (ret < 0){
+			av_log(mov->fc, AV_LOG_TRACE, "mov_read_packet: mov_switch_root err, ret=%i", ret);
             return ret;
         }
         if (ret == AVERROR_EOF){
+			av_log(mov->fc, AV_LOG_TRACE, "mov_read_packet: eof (2)");
             return AVERROR_EOF;
         }
         goto retry;
@@ -7829,6 +7847,7 @@ static int mov_read_packet(AVFormatContext *s, AVPacket *pkt)
 
         ret = av_get_packet(sc->pb, pkt, sample->size);
         if (ret < 0) {
+			av_log(mov->fc, AV_LOG_TRACE, "mov_read_packet: av_get_packet err, ret=%i", ret);
             if (should_retry(sc->pb, ret)) {
                 mov_current_sample_dec(sc);
             }
@@ -7883,8 +7902,9 @@ static int mov_read_packet(AVFormatContext *s, AVPacket *pkt)
             pkt->duration = next_dts - pkt->dts;
         pkt->pts = pkt->dts;
     }
-    if (st->discard == AVDISCARD_ALL)
+    if (st->discard == AVDISCARD_ALL){
         goto retry;
+	}
     pkt->flags |= sample->flags & AVINDEX_KEYFRAME ? AV_PKT_FLAG_KEY : 0;
     pkt->pos = sample->pos;
 
@@ -7911,9 +7931,9 @@ static int mov_read_packet(AVFormatContext *s, AVPacket *pkt)
         aax_filter(pkt->data, pkt->size, mov);
 
     ret = cenc_filter(mov, st, sc, pkt, current_index);
-    if (ret < 0)
+    if (ret < 0){
         return ret;
-
+	}
     return 0;
 }
 
@@ -7995,8 +8015,9 @@ static int mov_read_seek(AVFormatContext *s, int stream_index, int64_t sample_ti
     int sample;
     int i;
 
-    if (stream_index >= s->nb_streams)
+    if (stream_index >= s->nb_streams){
         return AVERROR_INVALIDDATA;
+	}
 
     st = s->streams[stream_index];
     sample = mov_seek_stream(s, st, sample_time, flags);
@@ -8029,8 +8050,9 @@ static int mov_read_seek(AVFormatContext *s, int stream_index, int64_t sample_ti
         while (1) {
             MOVStreamContext *sc;
             AVIndexEntry *entry = mov_find_next_sample(s, &st);
-            if (!entry)
+            if (!entry){
                 return AVERROR_INVALIDDATA;
+			}
             sc = st->priv_data;
             if (sc->ffindex == stream_index && sc->current_sample == sample)
                 break;
