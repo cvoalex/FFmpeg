@@ -356,23 +356,22 @@ int64_t xx_avio_find_forw(AVIOContext *s, int lookahead, int rl32_toFind, int ma
 	unsigned int val2 = 0;
 	unsigned char *test_ptr = NULL;
 	unsigned int rl32_toTest = 0;
-	while(skipped_bytes < maxSkip){
+	while(!avio_feof(s) && s->buf_ptr != NULL && skipped_bytes < maxSkip){
 		test_ptr = s->buf_ptr+lookahead;
-		val1 = (*(test_ptr+0));
-		val1 |= (*(test_ptr+1)) << 8;
-		val2 = (*(test_ptr+2));
-		val2 |= (*(test_ptr+3)) << 8;
-		rl32_toTest = val1;
-		rl32_toTest |= (val2 << 16);
-		if(rl32_toTest == rl32_toFind){
-			return skipped_bytes;
-		}
+        if(test_ptr < s->buf_end-4){
+            // Emulating avio_rl32
+            val1 = (*(test_ptr+0));
+            val1 |= (*(test_ptr+1)) << 8;
+            val2 = (*(test_ptr+2));
+            val2 |= (*(test_ptr+3)) << 8;
+            rl32_toTest = val1;
+            rl32_toTest |= (val2 << 16);
+            if(rl32_toTest == rl32_toFind){
+                return skipped_bytes;
+            }
+        }
 		skipped_bytes++;
-		avio_r8(s);
-		if (avio_feof(s)){
-			break;
-		}
-        //av_log(s, AV_LOG_DEBUG, "xx_avio_find_forw: %"PRId64"/%"PRId64",  %"PRId64", %i %i %i %i", s->buf_ptr, test_ptr, s->pos, val1, val2, rl32_toTest, skipped_bytes);
+		avio_r8(s);// Can refill buffer, messing all ptrs
 	}
 	return -1;
 }
