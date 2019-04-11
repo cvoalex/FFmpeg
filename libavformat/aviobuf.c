@@ -339,10 +339,10 @@ int64_t xx_avio_pos_start(AVIOContext *s)
     return pos;
 }
 
-int64_t xx_avio_pos_cur(AVIOContext *s)
-{
-	return s->pos;
-}
+//int64_t xx_avio_pos_cur(AVIOContext *s)
+//{
+//	return s->pos;
+//}
 
 int64_t xx_avio_bufpos_cur(AVIOContext *s)
 {
@@ -602,7 +602,6 @@ void avio_write_marker(AVIOContext *s, int64_t time, enum AVIODataMarkerType typ
 
 static void fill_buffer(AVIOContext *s)
 {
-	//av_log(s, AV_LOG_DEBUG, "fill_buffer: 0x%"PRIx64", pos=%"PRId64"\n", s, xx_avio_pos_cur(s));
     int max_buffer_size = s->max_packet_size ?
                           s->max_packet_size : IO_BUFFER_SIZE;
     uint8_t *dst        = s->buf_end - s->buffer + max_buffer_size < s->buffer_size ?
@@ -696,9 +695,7 @@ void ffio_init_checksum(AVIOContext *s,
 int avio_r8(AVIOContext *s)
 {
     if (s->buf_ptr >= s->buf_end){
-		//int64_t pos_before = xx_avio_pos_cur(s);
         fill_buffer(s);
-		//av_log(s, AV_LOG_DEBUG, "avio_r8: 0x%"PRIx64" request past end, refilling buffer, pos=%"PRId64"->%"PRId64"\n", s, pos_before, xx_avio_pos_cur(s));
 	}
     if (s->buf_ptr < s->buf_end)
         return *s->buf_ptr++;
@@ -707,7 +704,6 @@ int avio_r8(AVIOContext *s)
 
 int avio_read(AVIOContext *s, unsigned char *buf, int size)
 {
-	//av_log(s, AV_LOG_DEBUG, "avio_read: 0x%"PRIx64", pos=%"PRId64"\n", s, xx_avio_pos_cur(s));
     int len, size1;
 
     size1 = size;
@@ -777,7 +773,6 @@ int ffio_read_indirect(AVIOContext *s, unsigned char *buf, int size, const unsig
 
 int avio_read_partial(AVIOContext *s, unsigned char *buf, int size)
 {
-	//av_log(s, AV_LOG_DEBUG, "avio_read_partial: 0x%"PRIx64", pos=%"PRId64"\n", s, xx_avio_pos_cur(s));
     int len;
 
     if (size < 0)

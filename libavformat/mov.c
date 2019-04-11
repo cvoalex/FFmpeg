@@ -6876,7 +6876,7 @@ static int mov_read_default(MOVContext *c, AVIOContext *pb, MOVAtom atom)
             }
 		}
         av_log(c->fc, AV_LOG_TRACE, "type:'%s' parent:'%s' sz: %"PRId64" %"PRId64" %"PRId64" pos=%"PRId64"\n",
-               av_fourcc2str(a.type), av_fourcc2str(atom.type), a.size, total_size, atom.size, xx_avio_pos_cur(pb));
+               av_fourcc2str(a.type), av_fourcc2str(atom.type), a.size, total_size, atom.size, xx_avio_bufpos_cur(pb));
 		if(isOk == 0){
 			av_log(c->fc, AV_LOG_TRACE, "- llhls: invalid atom in stream, skipping microchunk");
 			c->atom_depth --;
@@ -7765,7 +7765,7 @@ static int mov_read_packet(AVFormatContext *s, AVPacket *pkt)
     if (!sample || (mov->next_root_atom && sample->pos > mov->next_root_atom)) {
         int64_t s_size = xx_avio_sz(s->pb);
         int64_t s_pos_start = xx_avio_pos_start(s->pb);
-        int64_t s_pos_cur = xx_avio_pos_cur(s->pb);
+        int64_t s_pos_cur = xx_avio_bufpos_cur(s->pb);
         int64_t s_pos_valid_nra = mov->next_root_atom;
         av_log(mov->fc, AV_LOG_TRACE, "mov_read_packet: looking for sample: nra=%"PRId64", pcur=%"PRId64", pstart=%"PRId64", sz=%"PRId64"\n", mov->next_root_atom, s_pos_cur, s_pos_start, s_size);
         if (!mov->next_root_atom){

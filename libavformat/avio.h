@@ -539,7 +539,7 @@ void avio_write_marker(AVIOContext *s, int64_t time, enum AVIODataMarkerType typ
 
 int64_t xx_avio_sz(AVIOContext *s);
 int64_t xx_avio_pos_start(AVIOContext *s);
-int64_t xx_avio_pos_cur(AVIOContext *s);
+//int64_t xx_avio_pos_cur(AVIOContext *s);
 int64_t xx_avio_find_forw(AVIOContext *s, int lookahead, int rl32_toFind, int maxSkip);
 int64_t xx_avio_jump(AVIOContext *s, int64_t new_pos);
 int64_t xx_avio_refill_reset(AVIOContext *s);
